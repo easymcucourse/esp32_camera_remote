@@ -21,7 +21,7 @@
 | 内存 | 16MB Flash、8MB Octal PSRAM，PSRAM 80MHz |
 | CPU | ESP32-S3 双核，240MHz |
 | LCD | 1024×600 RGB565，18MHz 像素时钟 |
-| 相机 | Sony ZV-E10，已测试固件 2.00 |
+| 相机 | Sony ZV-E10，当前固件 2.0.3 |
 | SDK | ESP-IDF 5.5.1 |
 | JPEG | espressif/esp_new_jpeg 1.0.2 |
 | 串口 | 115200 baud，本机 COM8 |
