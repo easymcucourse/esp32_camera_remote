@@ -1,0 +1,13 @@
+captures/
+__pycache__/
+.reference/
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+backups/
+.venv/
+*.pyc
+*.log
+.DS_Store
+Thumbs.db
