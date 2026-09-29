@@ -20,11 +20,11 @@ void app_main(void)
     ESP_LOGI("remote", "Touch disabled; PTP/IP live-view JPEG enabled");
     // Preserve existing NVS; do not silently erase it on an incompatible layout.
     ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(board_7b_init());
+    ESP_ERROR_CHECK(board_7b_init(AP_SSID, AP_PASSWORD));
     wifi_ap_start();
     camera_pair_console_init();
     camera_jpeg_start();
-    ESP_LOGI("remote", "READY: LCD 1024x600 RGB565 test pattern, UART 115200");
+    ESP_LOGI("remote", "READY: LCD connection screen, UART 115200");
     while (true) {
         wifi_ap_log_clients();
         ESP_LOGI("remote", "uptime=%" PRId64 "s free_internal=%u free_psram=%u",

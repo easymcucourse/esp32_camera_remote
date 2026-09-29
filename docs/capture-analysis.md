@@ -131,3 +131,19 @@ LCD 使用 RGB565，完整 JPEG 先解码到 PSRAM 暂存帧，再提交显示�
 `sdkconfig.defaults` 和本机 `sdkconfig` 均启用 `CONFIG_COMPILER_OPTIMIZATION_PERF=y`，重新编译整个工程。`build/compile_commands.json` 确认 app_main、camera_pair、board_7b 使用 `-O2`；预编译库不重新优化。编译与烧录哈希校验通过，日志 `build/fps-o2-run.log` 测得约 3.5–3.7fps；用户确认 FPS 显示正常、画面稳定。
 
 烧录前在旧固件执行停止时捕获到 pair_console 栈溢出（`build/before-fps-o2-stop.log`），将其栈从 2048 增至 4096 字节。新版停止时解码任务排空 108 帧，CloseSession 返回 0x2001，恢复取景成功，本次复测未见栈溢出。证据：`build/fps-o2-stop.log`、`build/fps-o2-restart.log`。
+
+## 0x9209 属性数据与详细屏幕
+
+原始抓包的首个 `0x9209` 返回 2811 字节，开头为 93 个条目和 4 字节保留值。每个 Sony 属性条目布局为：`code:u16`、`type:u16`、`getset:u8`、`enabled:u8`、默认值、当前值、表单及约束。它比标准 PTP DevicePropDesc 多一个 `enabled` 字节；把标准格式直接套用会得到看似合理但错误的数值。
+
+抓包首个快照中，白平衡 `0x5005` 当前值为 2，F-number `0x5007` 为 `0xFFFE`（无可显示值），对焦 `0x500A` 为 1，测光 `0x500B` 为 `0x8001`，闪光 `0x500C` 为 2，曝光模式 `0x500E` 为 `0x00078051`，EV `0x5010` 为 0，快门 `0xD20D` 为 `0xFFFFFFFF`（无可显示值），ISO `0xD21E` 为 `0x00FFFFFF`（AUTO）。`0xD20F` 是色温，不作为光圈回退值。
+
+第三方实现与 Sony Camera Control PTP 参考表均确认：`0x00078051` 表示 **Movie Recording (A)**，即视频模式下的光圈优先；`0x8001` 在属性 `0x500B` 中表示 **Multi**，即多重测光。固件据此显示 `MODE MOVIE A` 和 `METER MULTI`。Sony 的枚举值必须结合属性代码解释，同一个 `0x8001` 在白平衡或闪光属性中有不同含义。
+
+交叉验证来源：
+
+- [libgphoto2 Sony 32-bit exposure program table](https://github.com/gphoto/libgphoto2/blob/master/camlibs/ptp2/config.c)
+- [pysonycam Sony property enumerations](https://github.com/olkham/pysonycam/blob/main/pysonycam/constants.py)
+- [Sony Camera Image Edge replacement property reference](https://github.com/Fireflaker/Sony-Camera-Image-Edge-REPLACEMENT/blob/main/ptp_property_reference.md)
+
+固件现在读取每个条目的当前值而非默认值，并每 5 秒重新请求 `0x9209`。详细屏幕将已知 Sony 编码转换为 ISO、光圈、快门、EV、拍摄模式、白平衡、对焦和测光名称；尚未确认的扩展枚举继续显示原始十六进制值。

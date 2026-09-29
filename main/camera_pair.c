@@ -12,6 +12,7 @@
 #include "board_7b.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "lwip/sockets.h"
@@ -22,6 +23,13 @@
 static const char *TAG = "camera_pair";
 static atomic_bool busy = false;
 static atomic_bool stop_requested = false;
+
+// The producer updates this screen only while no JPEG worker owns the LCD.
+static void connection_status(const char *status)
+{
+    esp_err_t err = board_7b_show_connection(status);
+    if (err != ESP_OK) ESP_LOGW(TAG, "Connection screen: %s", esp_err_to_name(err));
+}
 
 // Keep headroom for larger live-view JPEG objects in PSRAM.
 #define OBJECT_CAPACITY (1024 * 1024)
@@ -34,6 +42,11 @@ static uint32_t get32(const uint8_t *p)
 static void put32(uint8_t *p, uint32_t value)
 {
     for (int i = 0; i < 4; ++i) p[i] = value >> (8 * i);
+}
+
+static uint16_t get16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | (uint16_t)p[1] << 8;
 }
 
 static bool transfer(int fd, void *buffer, size_t length, bool transmit)
@@ -177,6 +190,81 @@ static bool request_data(int fd, uint16_t opcode, uint32_t transaction,
     return false;
 }
 
+static bool ptp_string(const uint8_t *data, size_t size, size_t *offset,
+                       char *output, size_t capacity)
+{
+    if (*offset >= size || !capacity) return false;
+    unsigned count = data[(*offset)++];
+    if (count > (size - *offset) / 2) return false;
+    size_t written = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        uint16_t ch = get16(data + *offset + i * 2);
+        if (!ch) break;
+        if (written + 1 < capacity) output[written++] = ch < 128 ? (char)ch : '?';
+    }
+    output[written] = 0;
+    *offset += count * 2;
+    return true;
+}
+
+static void parse_device_info(const uint8_t *data, size_t size)
+{
+    size_t offset = 8;
+    char scratch[64], model[24], firmware[24];
+    if (size < offset || !ptp_string(data, size, &offset, scratch, sizeof(scratch)) ||
+        offset + 2 > size) return;
+    offset += 2;
+    for (int array = 0; array < 5; ++array) {
+        if (offset + 4 > size) return;
+        uint32_t count = get32(data + offset);
+        offset += 4;
+        if (count > (size - offset) / 2) return;
+        offset += count * 2;
+    }
+    if (!ptp_string(data, size, &offset, scratch, sizeof(scratch)) ||
+        !ptp_string(data, size, &offset, model, sizeof(model)) ||
+        !ptp_string(data, size, &offset, firmware, sizeof(firmware))) return;
+    board_7b_set_camera_info(model, firmware);
+    ESP_LOGI(TAG, "DeviceInfo: model=%s firmware=%s", model, firmware);
+}
+
+static bool sony_property_value(const uint8_t *data, size_t size, uint16_t code,
+                                uint16_t type, uint32_t *value)
+{
+    // Sony 0x9209 entries are not standard PTP DevicePropDesc records:
+    // code:u16, type:u16, getset:u8, enabled:u8, default, current, form...
+    // The capture starts with entry_count:u32 and reserved:u32.
+    unsigned width = type <= 2 ? 1 : type <= 4 ? 2 : type <= 6 ? 4 : 0;
+    if (!width || size < 8 || get32(data + 4) != 0) return false;
+    for (size_t i = 8; i + 6 + width * 2 < size; ++i) {
+        if (get16(data + i) == code && get16(data + i + 2) == type &&
+            (data[i + 4] <= 1 || (data[i + 4] & 0x80)) && data[i + 5] <= 2) {
+            const uint8_t *current = data + i + 6 + width;
+            *value = width == 1 ? current[0] :
+                     width == 2 ? get16(current) : get32(current);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void parse_sony_properties(const uint8_t *data, size_t size)
+{
+    static const struct { uint16_t code, type; } properties[] = {
+        {0x5005, 4}, {0x5007, 4}, {0x500a, 4}, {0x500b, 4},
+        {0x500c, 4}, {0x5010, 3}, {0xd20d, 6}, {0xd21e, 6},
+    };
+    uint32_t value;
+    if (sony_property_value(data, size, 0x500e, 6, &value)) {
+        board_7b_set_exposure_mode(value);
+        ESP_LOGI(TAG, "Exposure mode=0x%08lx", (unsigned long)value);
+    }
+    for (unsigned i = 0; i < sizeof(properties) / sizeof(properties[0]); ++i) {
+        if (sony_property_value(data, size, properties[i].code, properties[i].type, &value))
+            board_7b_set_camera_property(properties[i].code, value);
+    }
+}
+
 static bool drain_events(int event)
 {
     // Drain events between frames so the independent event connection cannot fill.
@@ -269,7 +357,7 @@ static void jpeg_decode_task(void *arg)
     ESP_LOGI(TAG, "JPEG worker drained: displayed=%u", frames);
     // No pipeline access after this signal: the producer may free its context.
     xSemaphoreGive(pipeline->done);
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 static bool read_liveview(int command, int event, uint32_t *next_transaction)
@@ -302,10 +390,20 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
     for (unsigned i = 0; i < sizeof(steps) / sizeof(steps[0]) && ok; ++i) {
         ok = request_data(command, steps[i].opcode, (*next_transaction)++, steps[i].params,
                           steps[i].count, pipeline.data[0], OBJECT_CAPACITY, &size);
+        if (ok && steps[i].opcode == 0x1001)
+            parse_device_info(pipeline.data[0], size);
+        if (ok && steps[i].opcode == 0x9209)
+            parse_sony_properties(pipeline.data[0], size);
     }
     if (!ok) goto cleanup;
+    int64_t next_exposure_read = esp_timer_get_time() + 5000000;
+    connection_status("Connected - waiting for preview...");
     for (int i = 0; i < 2; ++i) xQueueSend(pipeline.free_slots, &i, 0);
-    if (xTaskCreatePinnedToCore(jpeg_decode_task, "jpeg_decode", 8192, &pipeline, 4, NULL, 1) != pdPASS) {
+    // The decoder task does not call flash-disabled code or DMA from its stack,
+    // so its large stack can live in PSRAM and leave internal RAM for TCP/Wi-Fi.
+    if (xTaskCreatePinnedToCoreWithCaps(jpeg_decode_task, "jpeg_decode", 8192,
+                                        &pipeline, 4, NULL, 1,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ok = false;
         goto cleanup;
     }
@@ -318,6 +416,14 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
         if (atomic_load(&stop_requested) || atomic_load(&pipeline.failed)) break;
         ok = drain_events(event);
         if (!ok) break;
+        if (esp_timer_get_time() >= next_exposure_read) {
+            const uint32_t property_group = 0;
+            ok = request_data(command, 0x9209, (*next_transaction)++, &property_group, 1,
+                              pipeline.data[slot], OBJECT_CAPACITY, &size);
+            if (!ok) break;
+            parse_sony_properties(pipeline.data[slot], size);
+            next_exposure_read = esp_timer_get_time() + 5000000;
+        }
         int64_t start = esp_timer_get_time();
         ok = request_data(command, 0x1009, (*next_transaction)++, &handle, 1,
                           pipeline.data[slot], OBJECT_CAPACITY, &size);
@@ -351,6 +457,7 @@ static bool handshake(int command, const uint8_t guid[16], bool first, bool jpeg
     put32(packet + length - 4, 0x00010000);
     if (!timeout_set(command, first ? 120 : 10)) return false;
     ESP_LOGI(TAG, "Sending InitCommandRequest as %s; confirm on camera if prompted", name);
+    connection_status("Pairing - confirm on camera...");
     if (!transfer(command, packet, length, true)) return false;
     int n = receive_packet(command, packet, sizeof(packet));
     if (n >= 12 && get32(packet + 4) == 5) {
@@ -365,6 +472,7 @@ static bool handshake(int command, const uint8_t guid[16], bool first, bool jpeg
         if (!camera_name[i]) break;
     }
     ESP_LOGI(TAG, "INIT ACK: camera=%s connection=%lu", camera_name, (unsigned long)connection);
+    board_7b_set_camera_info(camera_name, NULL);
     int event = connect_camera();
     if (event < 0) return false;
     put32(packet, 12);
@@ -377,6 +485,7 @@ static bool handshake(int command, const uint8_t guid[16], bool first, bool jpeg
         ok = timeout_set(command, 5) && operation(command, 0x1002, 2, true);
         if (ok) {
             ESP_LOGI(TAG, "SESSION VERIFIED: OpenSession accepted");
+            connection_status("Session connected - preparing preview...");
             if (jpeg) {
                 uint32_t next_transaction = 3;
                 ok = read_liveview(command, event, &next_transaction);
@@ -412,6 +521,7 @@ static void pair_task(void *unused)
     bool ok = false;
     do {
         ESP_LOGI(TAG, "Persistent ESP32 GUID loaded; waiting for camera %s", CAMERA_IP);
+        connection_status("Wi-Fi ready - waiting for camera...");
         const uint8_t camera_mac[6] = {0xd0, 0x40, 0xef, 0xde, 0x59, 0x9f};
         bool associated = false;
         while (!associated && !atomic_load(&stop_requested)) {
@@ -425,11 +535,15 @@ static void pair_task(void *unused)
         }
         if (atomic_load(&stop_requested)) break;
         ESP_LOGI(TAG, "Camera associated; starting PTP/IP connection");
+        connection_status("Camera joined Wi-Fi - connecting...");
         vTaskDelay(pdMS_TO_TICKS(2000));
         int fd = -1;
         for (int attempt = 0; attempt < 12 && fd < 0 && !atomic_load(&stop_requested); ++attempt) {
             fd = connect_camera();
-            if (fd < 0) vTaskDelay(pdMS_TO_TICKS(5000));
+            if (fd < 0) {
+                connection_status("Camera connection failed - retrying...");
+                vTaskDelay(pdMS_TO_TICKS(5000));
+            }
         }
         ok = fd >= 0 && !atomic_load(&stop_requested) && handshake(fd, guid, true, jpeg);
         if (fd >= 0) close(fd);
@@ -443,14 +557,16 @@ static void pair_task(void *unused)
         }
         if (jpeg && !atomic_load(&stop_requested)) {
             ESP_LOGW(TAG, "Live-view disconnected; retrying in 5 seconds");
+            connection_status("Disconnected - retrying in 5 seconds...");
             for (int i = 0; i < 50 && !atomic_load(&stop_requested); ++i) vTaskDelay(pdMS_TO_TICKS(100));
         }
     } while (jpeg && !atomic_load(&stop_requested));
     if (jpeg) ESP_LOGI(TAG, "LIVEVIEW STOPPED: last frame remains on LCD");
+    if (!jpeg) connection_status(ok ? "Pairing verified - press j for preview" : "Pairing failed - press p to retry");
     if (!ok) ESP_LOGW(TAG, "Camera request incomplete; inspect mode and preceding response");
     ESP_LOGI(TAG, "Diagnostic finished; sockets closed, no shooting/settings commands sent");
     atomic_store(&busy, false);
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 static void start_request(bool jpeg)
@@ -460,9 +576,14 @@ static void start_request(bool jpeg)
         return;
     }
     atomic_store(&stop_requested, false);
-    if (xTaskCreatePinnedToCore(pair_task, "camera_pair", 8192, (void *)(uintptr_t)jpeg, 4, NULL, 0) != pdPASS) {
-        atomic_store(&busy, false);
+    // This task is mostly blocked on sockets or delays. Keeping its large stack
+    // in PSRAM leaves internal RAM available for lwIP packet buffers.
+    if (xTaskCreatePinnedToCoreWithCaps(pair_task, "camera_pair", 8192,
+                                        (void *)(uintptr_t)jpeg, 4, NULL, 0,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ESP_LOGE(TAG, "Cannot allocate pairing task");
+        connection_status("Cannot start camera task - press j");
+        atomic_store(&busy, false);
     }
 }
 
@@ -476,7 +597,13 @@ static void console_task(void *unused)
         if (uart_read_bytes(UART_NUM_0, &command, 1, pdMS_TO_TICKS(1000)) == 1) {
             if (command == 'p' || command == 'P') camera_pair_start();
             if (command == 'j' || command == 'J') camera_jpeg_start();
-            if (command == 's' || command == 'S') {
+            if (command == 'S') {
+                bool enabled = board_7b_toggle_settings_mode();
+                ESP_LOGI(TAG, "Settings display %s: preview=%s",
+                         enabled ? "enabled" : "disabled",
+                         enabled ? "768x432" : "1024x576");
+            }
+            if (command == 's') {
                 atomic_store(&stop_requested, true);
                 ESP_LOGI(TAG, "Stop requested; finishing current transaction");
             }
@@ -488,5 +615,5 @@ void camera_pair_console_init(void)
 {
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(xTaskCreate(console_task, "pair_console", 4096, NULL, 3, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
-    ESP_LOGI(TAG, "UART: j = live-view start, s = stop, p = pairing when stopped");
+    ESP_LOGI(TAG, "UART: j = live-view, S = settings display, s = stop, p = pairing");
 }

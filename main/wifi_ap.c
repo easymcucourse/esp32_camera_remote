@@ -5,9 +5,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
-
-#define AP_SSID "esp32camap"
-#define AP_PASSWORD "00000000"
+#include "board_7b.h"
 
 static const char *TAG = "wifi_ap";
 static esp_netif_t *ap_netif;
@@ -21,7 +19,11 @@ void wifi_ap_log_clients(void)
         return;
     }
     ESP_LOGI(TAG, "Connected clients: %d", clients.num);
-    if (!clients.num) return;
+    if (!clients.num) {
+        board_7b_set_wifi_rssi(-127);
+        return;
+    }
+    board_7b_set_wifi_rssi(clients.sta[0].rssi);
     esp_netif_pair_mac_ip_t pairs[ESP_WIFI_MAX_CONN_NUM] = {0};
     for (int i = 0; i < clients.num; ++i) {
         memcpy(pairs[i].mac, clients.sta[i].mac, 6);

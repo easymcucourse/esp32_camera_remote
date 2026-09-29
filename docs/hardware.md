@@ -1,6 +1,6 @@
-# LCD-7B 硬件配置
+# ESP32-S3-Touch-LCD-7B 硬件配置
 
-目标为 Waveshare ESP32-S3-LCD-7B，当前不初始化触摸设备。参数对应 `components/board_7b/board_7b.c`，不要套用 LCD-7 的 CH422G 驱动。
+目标为 Waveshare ESP32-S3-Touch-LCD-7B，当前不初始化触摸设备。参数对应 `components/board_7b/board_7b.c`，不要套用 LCD-7 的 CH422G 驱动。
 
 | 信号 | GPIO / 配置 |
 | --- | --- |
@@ -17,6 +17,6 @@
 
 启动先关背光，配置屏幕电源，初始化帧缓冲及 RGB 外设，再开背光。实时取景为 1024×576，居中坐标 `(0,12)`。
 
-30MHz 像素时钟在连续取景时曾出现扫描起点上下跳动；18MHz 配合双帧缓冲已由用户确认稳定。LCD 扫描频率不同于右上角的画面更新 FPS。
+30MHz 像素时钟在连续取景时曾出现扫描起点上下跳动；40MHz 实测显示异常。18MHz 配合双帧缓冲已由用户确认稳定。LCD 扫描频率不同于右上角的画面更新 FPS。
 
 本机串口 COM8（CH343）。首次移植前的完整 Flash 备份为 `backups/com8-before-idf.bin`，大小 16,777,216 字节，SHA256：`E66B2E21643C52492B89FA029845FBEAC4A34B3FDA74E55994F80EC4AC8C8F72`。备份仅保存在本地，不随仓库发布。
