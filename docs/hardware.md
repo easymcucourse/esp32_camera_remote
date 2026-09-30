@@ -17,6 +17,8 @@
 
 启动先关背光，配置屏幕电源，初始化帧缓冲及 RGB 外设，再开背光。实时取景为 1024×576，居中坐标 `(0,12)`。
 
+ATOM Matrix 作为 Grove I²C 从系统，地址 `0x42`，复用 LCD 的 GPIO8/9 主总线。ATOM SDA/SCL 为 GPIO26/32，两端共地。LCD 定期读取按键状态和累计次数，连接时设置 ATOM 灯阵为绿色。接线及协议见 [ATOM 子项目说明](../m5_atom_matrix/README.md)。
+
 30MHz 像素时钟在连续取景时曾出现扫描起点上下跳动；40MHz 实测显示异常。18MHz 配合双帧缓冲已由用户确认稳定。LCD 扫描频率不同于右上角的画面更新 FPS。
 
 本机串口 COM8（CH343）。首次移植前的完整 Flash 备份为 `backups/com8-before-idf.bin`，大小 16,777,216 字节，SHA256：`E66B2E21643C52492B89FA029845FBEAC4A34B3FDA74E55994F80EC4AC8C8F72`。备份仅保存在本地，不随仓库发布。

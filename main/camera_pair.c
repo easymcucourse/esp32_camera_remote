@@ -23,6 +23,22 @@
 static const char *TAG = "camera_pair";
 static atomic_bool busy = false;
 static atomic_bool stop_requested = false;
+static QueueHandle_t mode_requests;
+static atomic_bool mode_control_ready;
+static uint32_t mode_values[64], current_mode;
+static unsigned mode_count;
+static bool mode_writable;
+
+void camera_mode_step(int direction)
+{
+    if (direction != -1 && direction != 1) return;
+    if (!mode_requests || !atomic_load(&mode_control_ready)) {
+        ESP_LOGW(TAG, "Mode change ignored: camera session not ready");
+        return;
+    }
+    if (xQueueSend(mode_requests, &direction, 0) != pdTRUE)
+        ESP_LOGW(TAG, "Mode change queue full");
+}
 
 // The producer updates this screen only while no JPEG worker owns the LCD.
 static void connection_status(const char *status)
@@ -250,12 +266,29 @@ static bool sony_property_value(const uint8_t *data, size_t size, uint16_t code,
 
 static void parse_sony_properties(const uint8_t *data, size_t size)
 {
+    mode_count = 0;
+    mode_writable = false;
+    // Sony UINT32 ExposureProgram: header(6), default(4), current(4), enum form.
+    if (size >= 8 && get32(data + 4) == 0) {
+        for (size_t i = 8; i + 17 <= size; ++i) {
+            if (get16(data + i) != 0x500e || get16(data + i + 2) != 6 ||
+                data[i + 5] > 2 || data[i + 14] != 2) continue;
+            unsigned count = get16(data + i + 15);
+            if (!count || count > 64 || count > (size - i - 17) / 4) continue;
+            current_mode = get32(data + i + 10);
+            mode_count = count;
+            mode_writable = data[i + 4] == 1 && data[i + 5] == 1;
+            for (unsigned j = 0; j < count; ++j) mode_values[j] = get32(data + i + 17 + j * 4);
+            break;
+        }
+    }
     static const struct { uint16_t code, type; } properties[] = {
         {0x5005, 4}, {0x5007, 4}, {0x500a, 4}, {0x500b, 4},
         {0x500c, 4}, {0x5010, 3}, {0xd20d, 6}, {0xd21e, 6},
     };
     uint32_t value;
     if (sony_property_value(data, size, 0x500e, 6, &value)) {
+        current_mode = value;
         board_7b_set_exposure_mode(value);
         ESP_LOGI(TAG, "Exposure mode=0x%08lx", (unsigned long)value);
     }
@@ -263,6 +296,41 @@ static void parse_sony_properties(const uint8_t *data, size_t size)
         if (sony_property_value(data, size, properties[i].code, properties[i].type, &value))
             board_7b_set_camera_property(properties[i].code, value);
     }
+}
+
+// Sony SetExtDevicePropValue (0x9205), UINT32 ExposureProgram (0x500e).
+// Called exclusively by the socket owner between live-view transactions.
+static bool set_exposure_mode(int fd, uint32_t transaction, uint32_t value, bool *accepted)
+{
+    uint8_t packet[128] = {0};
+    *accepted = false;
+    put32(packet, 22); put32(packet + 4, 6); put32(packet + 8, 2);
+    packet[12] = 0x05; packet[13] = 0x92;
+    put32(packet + 14, transaction); put32(packet + 18, 0x500e);
+    if (!transfer(fd, packet, 22, true)) return false;
+    memset(packet, 0, 20);
+    put32(packet, 20); put32(packet + 4, 9); put32(packet + 8, transaction);
+    put32(packet + 12, 4);
+    if (!transfer(fd, packet, 20, true)) return false;
+    put32(packet, 16); put32(packet + 4, 10); put32(packet + 8, transaction);
+    put32(packet + 12, value);
+    if (!transfer(fd, packet, 16, true)) return false;
+    put32(packet, 12); put32(packet + 4, 12); put32(packet + 8, transaction);
+    if (!transfer(fd, packet, 12, true)) return false;
+    for (unsigned i = 0; i < 16; ++i) {
+        int n = receive_packet(fd, packet, sizeof(packet));
+        if (n == 8 && get32(packet + 4) == 13) {
+            put32(packet + 4, 14);
+            if (!transfer(fd, packet, 8, true)) return false;
+            continue;
+        }
+        if (n < 14 || get32(packet + 4) != 7 || get32(packet + 10) != transaction) return false;
+        uint16_t response = get16(packet + 8);
+        *accepted = response == 0x2001;
+        ESP_LOGI(TAG, "Set Mode=0x%08lx response=0x%04x", (unsigned long)value, response);
+        return true; // A camera rejection does not invalidate the TCP session.
+    }
+    return false;
 }
 
 static bool drain_events(int event)
@@ -362,6 +430,9 @@ static void jpeg_decode_task(void *arg)
 
 static bool read_liveview(int command, int event, uint32_t *next_transaction)
 {
+    atomic_store(&mode_control_ready, false);
+    mode_count = 0;
+    if (mode_requests) xQueueReset(mode_requests);
     jpeg_pipeline_t pipeline = {0};
     atomic_init(&pipeline.failed, false);
     bool worker_started = false;
@@ -401,13 +472,15 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
     for (int i = 0; i < 2; ++i) xQueueSend(pipeline.free_slots, &i, 0);
     // The decoder task does not call flash-disabled code or DMA from its stack,
     // so its large stack can live in PSRAM and leave internal RAM for TCP/Wi-Fi.
-    if (xTaskCreatePinnedToCoreWithCaps(jpeg_decode_task, "jpeg_decode", 8192,
+    // FreeType's grayscale rasterizer uses a 16 KiB stack-local work pool.
+    if (xTaskCreatePinnedToCoreWithCaps(jpeg_decode_task, "jpeg_decode", 32768,
                                         &pipeline, 4, NULL, 1,
                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ok = false;
         goto cleanup;
     }
     worker_started = true;
+    atomic_store(&mode_control_ready, true);
     const uint32_t handle = 0xffffc002;
     ESP_LOGI(TAG, "LIVEVIEW RUNNING: RX core=%d, decode core=1, 2x1MiB pipeline; s stops, j starts", xPortGetCoreID());
     while (ok && !atomic_load(&stop_requested) && !atomic_load(&pipeline.failed)) {
@@ -416,13 +489,37 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
         if (atomic_load(&stop_requested) || atomic_load(&pipeline.failed)) break;
         ok = drain_events(event);
         if (!ok) break;
-        if (esp_timer_get_time() >= next_exposure_read) {
+        int direction;
+        bool mode_changed = mode_requests && xQueueReceive(mode_requests, &direction, 0) == pdTRUE;
+        if (mode_changed || esp_timer_get_time() >= next_exposure_read) {
             const uint32_t property_group = 0;
             ok = request_data(command, 0x9209, (*next_transaction)++, &property_group, 1,
                               pipeline.data[slot], OBJECT_CAPACITY, &size);
             if (!ok) break;
             parse_sony_properties(pipeline.data[slot], size);
             next_exposure_read = esp_timer_get_time() + 5000000;
+            if (mode_changed) {
+                unsigned index = 0;
+                while (index < mode_count && mode_values[index] != current_mode) ++index;
+                if (!mode_writable || mode_count < 2 || index == mode_count) {
+                    ESP_LOGW(TAG, "Mode change unavailable: writable=%d choices=%u", mode_writable, mode_count);
+                } else {
+                    unsigned next = direction > 0 ? (index + 1) % mode_count :
+                        (index + mode_count - 1) % mode_count;
+                    uint32_t target = mode_values[next];
+                    bool accepted;
+                    ok = set_exposure_mode(command, (*next_transaction)++, target, &accepted);
+                    if (!ok) break;
+                    if (accepted) {
+                        ok = request_data(command, 0x9209, (*next_transaction)++, &property_group, 1,
+                                          pipeline.data[slot], OBJECT_CAPACITY, &size);
+                        if (!ok) break;
+                        parse_sony_properties(pipeline.data[slot], size);
+                        ESP_LOGI(TAG, "Mode readback: requested=0x%08lx actual=0x%08lx",
+                                 (unsigned long)target, (unsigned long)current_mode);
+                    }
+                }
+            }
         }
         int64_t start = esp_timer_get_time();
         ok = request_data(command, 0x1009, (*next_transaction)++, &handle, 1,
@@ -432,6 +529,8 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
         xQueueSend(pipeline.ready, &job, portMAX_DELAY);
     }
 cleanup:
+    atomic_store(&mode_control_ready, false);
+    if (mode_requests) xQueueReset(mode_requests);
     if (worker_started) {
         jpeg_job_t end = {.slot = -1};
         xQueueSend(pipeline.ready, &end, portMAX_DELAY);
@@ -564,7 +663,7 @@ static void pair_task(void *unused)
     if (jpeg) ESP_LOGI(TAG, "LIVEVIEW STOPPED: last frame remains on LCD");
     if (!jpeg) connection_status(ok ? "Pairing verified - press j for preview" : "Pairing failed - press p to retry");
     if (!ok) ESP_LOGW(TAG, "Camera request incomplete; inspect mode and preceding response");
-    ESP_LOGI(TAG, "Diagnostic finished; sockets closed, no shooting/settings commands sent");
+    ESP_LOGI(TAG, "Camera task finished; sockets closed");
     atomic_store(&busy, false);
     vTaskDeleteWithCaps(NULL);
 }
@@ -578,7 +677,7 @@ static void start_request(bool jpeg)
     atomic_store(&stop_requested, false);
     // This task is mostly blocked on sockets or delays. Keeping its large stack
     // in PSRAM leaves internal RAM available for lwIP packet buffers.
-    if (xTaskCreatePinnedToCoreWithCaps(pair_task, "camera_pair", 8192,
+    if (xTaskCreatePinnedToCoreWithCaps(pair_task, "camera_pair", 32768,
                                         (void *)(uintptr_t)jpeg, 4, NULL, 0,
                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         ESP_LOGE(TAG, "Cannot allocate pairing task");
@@ -613,6 +712,8 @@ static void console_task(void *unused)
 
 void camera_pair_console_init(void)
 {
+    mode_requests = xQueueCreate(32, sizeof(int));
+    ESP_ERROR_CHECK(mode_requests ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(xTaskCreate(console_task, "pair_console", 4096, NULL, 3, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_LOGI(TAG, "UART: j = live-view, S = settings display, s = stop, p = pairing");

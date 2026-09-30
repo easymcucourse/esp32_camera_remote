@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include "board_7b.h"
+#include "ui_fonts.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -48,96 +49,46 @@ static atomic_uint prop_focus = 0xffff;
 static atomic_uint prop_meter = 0xffff;
 static atomic_uint prop_flash = 0xffff;
 static SemaphoreHandle_t display_mutex;
-
-// ASCII letters preserve the case of Wi-Fi credentials.
-static const uint8_t letter_font[][7] = {
-    {14,17,17,31,17,17,17},{30,17,17,30,17,17,30},
-    {14,17,16,16,16,17,14},{30,17,17,17,17,17,30},
-    {31,16,16,30,16,16,31},{31,16,16,30,16,16,16},
-    {14,17,16,23,17,17,15},{17,17,17,31,17,17,17},
-    {14,4,4,4,4,4,14},{7,2,2,2,18,18,12},
-    {17,18,20,24,20,18,17},{16,16,16,16,16,16,31},
-    {17,27,21,21,17,17,17},{17,25,21,19,17,17,17},
-    {14,17,17,17,17,17,14},{30,17,17,30,16,16,16},
-    {14,17,17,17,21,18,13},{30,17,17,30,20,18,17},
-    {15,16,16,14,1,1,30},{31,4,4,4,4,4,4},
-    {17,17,17,17,17,17,14},{17,17,17,17,17,10,4},
-    {17,17,17,21,21,21,10},{17,17,10,4,10,17,17},
-    {17,17,10,4,4,4,4},{31,1,2,4,8,16,31},
-    {0,0,14,1,15,17,15},{16,16,30,17,17,17,30},
-    {0,0,14,16,16,17,14},{1,1,15,17,17,17,15},
-    {0,0,14,17,31,16,14},{6,9,8,28,8,8,8},
-    {0,15,17,17,15,1,14},{16,16,30,17,17,17,17},
-    {4,0,12,4,4,4,14},{2,0,6,2,2,18,12},
-    {16,16,18,20,24,20,18},{12,4,4,4,4,4,14},
-    {0,0,26,21,21,17,17},{0,0,30,17,17,17,17},
-    {0,0,14,17,17,17,14},{0,0,30,17,30,16,16},
-    {0,0,15,17,15,1,1},{0,0,22,25,16,16,16},
-    {0,0,15,16,14,1,30},{8,8,28,8,8,9,6},
-    {0,0,17,17,17,19,13},{0,0,17,17,17,10,4},
-    {0,0,17,17,21,21,10},{0,0,17,10,4,10,17},
-    {0,0,17,17,15,1,14},{0,0,31,2,4,8,31},
-};
-
-// Small built-in 5x7 font: no allocation or UI library in the frame path.
-static const uint8_t fps_font[][7] = {
-    {14,17,19,21,25,17,14}, {4,12,4,4,4,4,14},
-    {14,17,1,2,4,8,31}, {30,1,1,14,1,1,30},
-    {2,6,10,18,31,2,2}, {31,16,16,30,1,1,30},
-    {14,16,16,30,17,17,14}, {31,1,2,4,8,8,8},
-    {14,17,17,14,17,17,14}, {14,17,17,15,1,1,14},
-    {31,16,16,30,16,16,16}, // F
-    {30,17,17,30,16,16,16}, // P
-    {15,16,16,14,1,1,30},   // S
-    {0,0,0,0,0,12,12},     // .
-    {0,0,0,0,0,0,0},       // space
-};
+static bool showing_connection = true;
+static atomic_bool atom_connected, controller_connected;
 
 static void draw_text(uint16_t *pixels, int left, int top, const char *text,
-                      int scale, uint16_t color)
+                      int pixel_size, uint16_t color)
 {
-    static const uint8_t unknown[7] = {14,17,1,2,4,0,4};
-    static const uint8_t colon[7] = {0,4,4,0,4,4,0};
-    static const uint8_t dash[7] = {0,0,0,31,0,0,0};
-    static const uint8_t plus[7] = {0,4,4,31,4,4,0};
-    static const uint8_t slash[7] = {1,2,2,4,8,8,16};
-    for (int i = 0; text[i]; ++i) {
-        unsigned char c = text[i];
-        const uint8_t *glyph = c >= 'A' && c <= 'Z' ? letter_font[c - 'A'] :
-            c >= 'a' && c <= 'z' ? letter_font[26 + c - 'a'] :
-            c >= '0' && c <= '9' ? fps_font[c - '0'] :
-            c == ' ' ? fps_font[14] : c == '.' ? fps_font[13] :
-            c == ':' ? colon : c == '-' ? dash : c == '+' ? plus :
-            c == '/' ? slash : unknown;
-        for (int y = 0; y < 7; ++y)
-            for (int x = 0; x < 5; ++x)
-                if (glyph[y] & (1U << (4 - x)))
-                    for (int dy = 0; dy < scale; ++dy)
-                        for (int dx = 0; dx < scale; ++dx) {
-                            int px = left + (i * 6 + x) * scale + dx;
-                            int py = top + y * scale + dy;
-                            if (px >= 0 && px < BOARD_LCD_WIDTH && py >= 0 && py < BOARD_LCD_HEIGHT)
-                                pixels[py * BOARD_LCD_WIDTH + px] = color;
-                        }
-    }
+    ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, left, top, text,
+                  pixel_size, color, false, BOARD_LCD_WIDTH);
+}
+
+static int fit_font_size(const char *text, int requested, int max_width, bool numbers)
+{
+    while (requested > 12 && ui_fonts_measure(text, requested, numbers) > max_width)
+        --requested;
+    return requested;
 }
 
 static void draw_connection(uint16_t *pixels, const char *status)
 {
     for (int i = 0; i < BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT; ++i) pixels[i] = 0x1082;
-    draw_text(pixels, 48, 48, "CAMERA REMOTE", 5, 0xffff);
-    draw_text(pixels, 48, 132, "WI-FI SSID", 3, 0x7bef);
-    draw_text(pixels, 48, 170, connection_ssid, strlen(connection_ssid) > 30 ? 4 : 5, 0xffff);
-    draw_text(pixels, 48, 246, "PASSWORD", 3, 0x7bef);
-    // Long WPA2 credentials fit on two lines without hiding characters.
-    char line[33];
-    snprintf(line, sizeof(line), "%.32s", connection_password);
-    draw_text(pixels, 48, 284, line, strlen(connection_password) > 30 ? 4 : 5, 0xffff);
-    if (strlen(connection_password) > 32)
-        draw_text(pixels, 48, 324, connection_password + 32, 4, 0xffff);
-    draw_text(pixels, 48, 400, status, 3, 0x07ff);
-    draw_text(pixels, 48, 470, "Connect camera to this Wi-Fi.", 3, 0x7bef);
-    draw_text(pixels, 48, 520, "Enable PC Remote on camera.", 3, 0x7bef);
+    const char *title = "easymcucourse camera station";
+    draw_text(pixels, 48, 40, title,
+              fit_font_size(title, 40, BOARD_LCD_WIDTH - 96, false), 0xffff);
+    char line[96];
+    snprintf(line, sizeof(line), "SSID: %s", connection_ssid);
+    draw_text(pixels, 48, 130, line,
+              fit_font_size(line, 32, BOARD_LCD_WIDTH - 96, false), 0xffff);
+    snprintf(line, sizeof(line), "Password: %s", connection_password);
+    draw_text(pixels, 48, 190, line,
+              fit_font_size(line, 32, BOARD_LCD_WIDTH - 96, false), 0xffff);
+    snprintf(line, sizeof(line), "Expend unit (ATOM): %s",
+             atom_connected ? "Connected" : "Disconnected");
+    draw_text(pixels, 48, 270, line, 30, atom_connected ? 0x07e0 : 0xf800);
+    snprintf(line, sizeof(line), "Controller (DS4): %s",
+             controller_connected ? "Connected" : "Disconnected");
+    draw_text(pixels, 48, 330, line, 30, controller_connected ? 0x07e0 : 0xf800);
+    draw_text(pixels, 48, 410, status,
+              fit_font_size(status, 24, BOARD_LCD_WIDTH - 96, false), 0x07ff);
+    draw_text(pixels, 48, 466, "Connect camera to this Wi-Fi.", 24, 0x7bef);
+    draw_text(pixels, 48, 516, "Enable PC Remote on camera.", 24, 0x7bef);
 }
 
 static esp_err_t publish_frame(uint16_t *pixels)
@@ -164,6 +115,7 @@ esp_err_t board_7b_show_connection(const char *status)
     if (display_sync_lost) return ESP_ERR_INVALID_STATE;
     xSemaphoreTake(display_mutex, portMAX_DELAY);
     snprintf(connection_status_text, sizeof(connection_status_text), "%s", status);
+    showing_connection = true;
     uint16_t *pixels = frame_buffers[front_buffer ^ 1];
     draw_connection(pixels, connection_status_text);
     fps_last_frame = fps_window_start = 0;
@@ -171,6 +123,26 @@ esp_err_t board_7b_show_connection(const char *status)
     esp_err_t err = publish_frame(pixels);
     xSemaphoreGive(display_mutex);
     return err;
+}
+
+void board_7b_set_atom_status(bool atom_online, bool controller_online)
+{
+    if (!panel || !display_mutex) return;
+    controller_online = atom_online && controller_online;
+    // Steady-state polling must not wait behind JPEG decoding/publication.
+    if (atomic_load(&atom_connected) == atom_online &&
+        atomic_load(&controller_connected) == controller_online) return;
+    xSemaphoreTake(display_mutex, portMAX_DELAY);
+    bool changed = atom_connected != atom_online || controller_connected != controller_online;
+    atom_connected = atom_online;
+    controller_connected = controller_online;
+    if (changed && showing_connection && !display_sync_lost) {
+        uint16_t *pixels = frame_buffers[front_buffer ^ 1];
+        draw_connection(pixels, connection_status_text);
+        esp_err_t err = publish_frame(pixels);
+        if (err != ESP_OK) ESP_LOGW(TAG, "connection status refresh: %s", esp_err_to_name(err));
+    }
+    xSemaphoreGive(display_mutex);
 }
 
 void board_7b_set_wifi_rssi(int rssi)
@@ -206,9 +178,9 @@ void board_7b_set_camera_property(uint16_t code, uint32_t value)
 
 bool board_7b_toggle_settings_mode(void)
 {
-    bool enabled = !atomic_load(&settings_mode);
-    atomic_store(&settings_mode, enabled);
-    return enabled;
+    bool previous = atomic_load(&settings_mode);
+    while (!atomic_compare_exchange_weak(&settings_mode, &previous, !previous)) {}
+    return !previous;
 }
 
 static const char *exposure_mode_name(unsigned mode)
@@ -262,7 +234,8 @@ static void format_exposure_mode(char *text, size_t size, unsigned mode)
 
 static void draw_preview_status(uint16_t *pixels)
 {
-    char lines[5][32];
+    char lines[6][32];
+    bool controller_online = atomic_load(&controller_connected);
     unsigned value = fps_tenths > 999 ? 999 : fps_tenths;
     int rssi = atomic_load(&wifi_rssi);
     if (rssi <= -127) snprintf(lines[0], sizeof(lines[0]), "WIFI -- DBM");
@@ -271,19 +244,26 @@ static void draw_preview_status(uint16_t *pixels)
     snprintf(lines[2], sizeof(lines[2]), "CAM %s", camera_model);
     snprintf(lines[3], sizeof(lines[3]), "FW %s", camera_firmware);
     format_exposure_mode(lines[4], sizeof(lines[4]), atomic_load(&exposure_mode));
+    snprintf(lines[5], sizeof(lines[5]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
 
-    const int scale = 2, padding = 6, top = 8, line_height = 7 * scale + 8;
-    size_t longest = 0;
-    for (int i = 0; i < 5; ++i)
-        if (strlen(lines[i]) > longest) longest = strlen(lines[i]);
-    int width = (int)longest * 6 * scale + padding * 2;
-    int height = line_height * 5 + padding * 2 - 8;
+    const int pixel_size = 18, padding = 8, top = 8;
+    const int line_height = ui_fonts_line_height(pixel_size) + 2;
+    int longest = 0;
+    for (int i = 0; i < 6; ++i)
+        if (ui_fonts_measure(lines[i], pixel_size, true) > longest)
+            longest = ui_fonts_measure(lines[i], pixel_size, true);
+    int width = longest + padding * 2;
+    if (width > BOARD_LCD_WIDTH - 16) width = BOARD_LCD_WIDTH - 16;
+    int height = line_height * 6 + padding * 2;
     int left = BOARD_LCD_WIDTH - 8 - width;
     for (int y = top; y < top + height; ++y)
         memset(pixels + y * BOARD_LCD_WIDTH + left, 0, width * sizeof(uint16_t));
-    for (int i = 0; i < 5; ++i)
-        draw_text(pixels, left + padding, top + padding + i * line_height,
-                  lines[i], scale, i == 0 && rssi > -127 && rssi < -75 ? 0xffe0 : 0xffff);
+    for (int i = 0; i < 6; ++i)
+        ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT,
+                      left + padding, top + padding + i * line_height, lines[i], pixel_size,
+                      i == 5 ? (controller_online ? 0x07e0 : 0xf800) :
+                      (i == 0 && rssi > -127 && rssi < -75 ? 0xffe0 : 0xffff),
+                      true, BOARD_LCD_WIDTH - 8);
 }
 
 static const char *white_balance_name(unsigned value)
@@ -387,7 +367,8 @@ static void format_shutter(char *text, size_t size, unsigned value)
 
 static void draw_settings_panel(uint16_t *pixels)
 {
-    char lines[14][32];
+    char lines[15][32];
+    bool controller_online = atomic_load(&controller_connected);
     unsigned fps = fps_tenths > 999 ? 999 : fps_tenths;
     int rssi = atomic_load(&wifi_rssi);
     unsigned iso = atomic_load(&prop_iso);
@@ -416,14 +397,19 @@ static void draw_settings_panel(uint16_t *pixels)
     format_named_value(lines[11], sizeof(lines[11]), "FOCUS", atomic_load(&prop_focus), 0xffff, focus_name);
     format_named_value(lines[12], sizeof(lines[12]), "METER", atomic_load(&prop_meter), 0xffff, meter_name);
     format_named_value(lines[13], sizeof(lines[13]), "FLASH", atomic_load(&prop_flash), 0xffff, flash_name);
+    snprintf(lines[14], sizeof(lines[14]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
 
-    const int left = 768, scale = 2, padding = 8, line_height = 38;
+    const int left = 768, padding = 8, line_height = 38;
     for (int y = 0; y < BOARD_LCD_HEIGHT; ++y)
         for (int x = left; x < BOARD_LCD_WIDTH; ++x)
             pixels[y * BOARD_LCD_WIDTH + x] = x == left ? 0x7bef : 0x0841;
-    for (int i = 0; i < 14; ++i)
-        draw_text(pixels, left + padding, 12 + i * line_height, lines[i], scale,
-                  i == 0 ? 0x07ff : (i >= 5 ? 0xffe0 : 0xffff));
+    for (int i = 0; i < 15; ++i)
+        ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, left + padding,
+                      12 + i * line_height, lines[i],
+                      fit_font_size(lines[i], 18, BOARD_LCD_WIDTH - left - padding * 2, true),
+                      i == 14 ? (controller_online ? 0x07e0 : 0xf800) :
+                      (i == 0 ? 0x07ff : (i >= 5 ? 0xffe0 : 0xffff)), true,
+                      BOARD_LCD_WIDTH - padding);
 }
 
 static void record_displayed_frame(void)
@@ -608,6 +594,7 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
                 if (esp_timer_get_time() - fps_last_frame > 2000000) fps_tenths = 0;
                 if (settings) draw_settings_panel(jpeg_pixels);
                 else draw_preview_status(jpeg_pixels);
+                showing_connection = false;
                 err = publish_frame(jpeg_pixels);
                 if (err == ESP_OK) record_displayed_frame();
                 if (err == ESP_OK) ESP_LOGD(TAG, "JPEG DISPLAYED: %u bytes, decode+draw=%ld ms",
@@ -688,6 +675,7 @@ esp_err_t board_7b_init(const char *ssid, const char *password)
     frame_done = xSemaphoreCreateCounting(4, 0);
     display_mutex = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(frame_done && display_mutex, ESP_ERR_NO_MEM, TAG, "display synchronization");
+    ESP_RETURN_ON_ERROR(ui_fonts_init(), TAG, "UI fonts");
     ESP_RETURN_ON_ERROR(esp_lcd_new_rgb_panel(&config, &panel), TAG, "RGB panel");
     ESP_RETURN_ON_ERROR(esp_lcd_rgb_panel_get_frame_buffer(panel, 2, &frame_buffers[0], &frame_buffers[1]), TAG, "framebuffers");
     const esp_lcd_rgb_panel_event_callbacks_t callbacks = {.on_frame_buf_complete = frame_complete};

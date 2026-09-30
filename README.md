@@ -1,6 +1,6 @@
 # ESP32-S3 Sony ZV-E10 Wi-Fi Remote
 
-使用 ESP32-S3 创建 Wi-Fi 热点，通过 PTP/IP 连接 Sony ZV-E10，将实时取景显示在 Waveshare ESP32-S3-Touch-LCD-7B 上。基于 ESP-IDF 5.5.1，当前支持配对、重连、连续取景及参数状态显示，尚未实现拍照、录像和参数设置。
+使用 ESP32-S3 创建 Wi-Fi 热点，通过 PTP/IP 连接 Sony ZV-E10，将实时取景显示在 Waveshare ESP32-S3-Touch-LCD-7B 上。M5Stack ATOM Matrix 通过蓝牙连接 DualShock 4，再通过 I²C 向 LCD 上报手柄状态及按键事件。基于 ESP-IDF 5.5.1，当前支持配对、重连、连续取景、参数显示和曝光 Mode 切换；尚未实现拍照、录像及其他参数设置。
 
 ## 功能与实测
 
@@ -8,7 +8,10 @@
 - 读取取景对象 `0xFFFFC002`，以 1024×576 原尺寸居中显示。
 - CPU0 接收，CPU1 独立任务使用 ESP32-S3 SIMD JPEG 解码。
 - 两个 1MiB 接收缓冲、LCD 双帧缓冲、30 行 DMA bounce buffer。
-- 右上角显示 Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本和曝光模式；按 `S` 可切换带完整拍摄参数的详细页。
+- 右上角显示 Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、曝光模式和 DS4 连接状态；设置界面底部也显示 DS4 状态，连接绿色、断开红色。
+- Start（DS4 Options）或串口 `S` 切换预览和设置界面；L1/R1 按相机支持的枚举切换上一个/下一个曝光 Mode。
+- ATOM 在蓝牙输入回调中缓存最多 128 次按键位图变化，LCD 确认后删除事件，并按事件 ID 去重，保留短按和连续按键。
+- Inter、思源黑体和 JetBrains Mono 字体使用 FreeType 灰度抗锯齿渲染，字体资源和许可证随工程提交。
 - 每 5 秒读取 Sony `0x9209` 属性数据，显示 ISO、快门、光圈、EV、白平衡、对焦、测光和闪光状态。
 - 工程源码全局使用 `-O2` 优化，Octal PSRAM 运行于 120MHz。
 - 串口暂停、恢复、配对诊断；通信失败后重试连接。
@@ -24,6 +27,7 @@
 | CPU | ESP32-S3 双核，240MHz |
 | LCD | 1024×600 RGB565，18MHz 像素时钟 |
 | 相机 | Sony ZV-E10，当前固件 2.0.3 |
+| 手柄扩展 | M5Stack ATOM Matrix（经典 ESP32），DualShock 4 |
 | SDK | ESP-IDF 5.5.1 |
 | JPEG | espressif/esp_new_jpeg 1.0.2 |
 | 串口 | 115200 baud，本机 COM8 |
@@ -60,7 +64,7 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 
 ## 相机连接
 
-1. 板子启动显示连接页面，展示热点 SSID **esp32camap**、密码 **00000000** 和连接状态，信道 6。屏幕使用内置英文字体。
+1. 板子启动显示 `easymcucourse camera station` 连接页面，SSID **esp32camap**、密码 **00000000** 各占一行，下面显示 ATOM、手柄和相机连接状态，信道 6。
 2. 相机连接热点，启用 PC 远程功能，选择 Wi-Fi 接入点连接。
 3. 首次连接进入配对等待画面；若提示确认，允许 **ESP32-Camera-Remote**。
 4. 页面依次显示等待相机、连接会话、配对确认和等待预览；第一帧成功解码显示后自动进入连续取景，上下各留 12 像素黑边。连接失败或取景断开后返回状态页并自动重试。
@@ -86,16 +90,52 @@ Sony 扩展枚举按属性代码解释。抓包中的曝光模式 `0x00078051` �
 
 ```sh
 python tools/serial_log.py --port COM8 --command j --seconds 30 --output build/liveview.log
-python tools/serial_log.py --port COM8 --command s --seconds 15 --until "Diagnostic finished;" --output build/stop.log
+python tools/serial_log.py --port COM8 --command s --seconds 15 --until "Camera task finished;" --output build/stop.log
 ```
 
 同一时刻只打开一个串口程序。记录器退出不会停止取景，添加 `--reset` 才会主动复位。
+
+## ATOM 与手柄控制
+
+LCD GPIO8（SDA）、GPIO9（SCL）、GND 连接 ATOM GPIO26、GPIO32、GND；两端分别 USB 供电时不连接 Grove 5V。总线为 100kHz，上拉到 3.3V，ATOM 从机地址 `0x42`。详细接线、蓝牙配对、I²C 协议与测试见 [ATOM 子项目](m5_atom_matrix/README.md)。
+
+在已激活 ESP-IDF 环境的终端编译并烧录 ATOM：
+
+```powershell
+cd m5_atom_matrix
+idf.py set-target esp32
+idf.py build
+idf.py -p COM6 -b 115200 flash
+```
+
+本机 LCD 为 COM8、ATOM 为 COM6，其他机器按实际端口替换。ATOM 高波特率烧录曾失败，115200 已验证可用。I²C 缓存协议更新需同时烧录两端，单独修改 LCD 界面或相机控制只需更新 LCD。
+
+| 手柄按键 | 功能 |
+| --- | --- |
+| Start / Options | 切换设置与预览界面 |
+| L1 | 循环切换上一个曝光 Mode |
+| R1 | 循环切换下一个曝光 Mode |
+| 其他按键 | 串口上报按下、松开，尚未绑定相机操作 |
+
+按住不重复触发；同一个事件同时按下 L1/R1 时不切换。Mode 操作在相机通信任务内排队执行，刷新 `0x9209` 属性、检查可写状态与枚举，再通过 `0x9205` 设置 `0x500E` UINT32 属性并回读。未连接、只读或无有效枚举时只记录原因。
+
+首次配对按住 SHARE + PS 至灯条快闪；已保存配对时按 PS 唤醒。ATOM 绿灯只表示 LCD 与 ATOM 的 I²C 通信建立，DS4 就绪以 `DualShock 4 connected; input ready` 和有效输入为准。LCD 的 `atom_link` 标签输出缓存事件、按键及输入快照。
+
+**实测限制：**相机设置响应 `0x2001` 表示请求成功，紧接着回读仍可能是旧 Mode；后续约 5 秒的属性查询才显示新 Mode。当前连续快速按 L1/R1 可能依据旧值重复设置同一目标，尚未实现等待生效后再执行下一次切换。最近约 60 秒的双端监听确认短按事件到达、Mode 后续更新，未见蓝牙断开或 I²C 超时。事件缓存为 RAM，ATOM 重启即清空；超过 128 次变化时丢弃最旧事件并记录溢出。
+
+```powershell
+python tools/serial_log.py --port COM6 --seconds 60 --output build/atom-input.log
+python tools/serial_log.py --port COM8 --seconds 60 --output build/lcd-input.log
+```
+
+在两个终端分别运行可同时记录。蓝牙连接失败先检查 ATOM 的 `ds4_host` 日志；LCD 显示断开还需对照 `atom_link`，区分蓝牙与 I²C 链路。
 
 ## 项目结构
 
 ```text
 main/                  启动、Wi-Fi AP、相机协议及解码任务流水线
 components/board_7b/   LCD 初始化、JPEG 解码、帧同步、FPS 绘制
+m5_atom_matrix/        M5Stack ATOM Matrix 独立 ESP-IDF 子项目
 docs/                  硬件配置、协议分析和实测记录
 tools/                 编译、串口记录、抓包与离线分析
 sdkconfig.defaults     目标、内存和 O2 默认配置
@@ -104,6 +144,8 @@ partitions.csv         NVS、PHY、12MiB 应用和剩余 data 分区
 ```
 
 `build/`、`managed_components/`、`captures/`、`backups/`、`.reference/` 和本地 `sdkconfig` 不提交。文档引用的原始抓包、固件备份和日志仅保存在开发机器上。
+
+LCD 字体采用 Inter（英文）、思源黑体（中文）和 JetBrains Mono（参数数字），通过 FreeType 按实际字号进行灰度抗锯齿渲染，字形缓存置于 PSRAM。裁剪后的字体及原始许可证随工程提交，具体覆盖范围、内存开销和资源生成方法见 [字体说明](components/board_7b/fonts/README.md)。
 
 ## 抓包与协议分析
 

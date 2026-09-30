@@ -1,0 +1,29 @@
+[
+  {
+    "file": "inter_ui.ttf",
+    "family": "Camera UI Sans",
+    "sha256": "6887e7202f5ec72ee5162ed1d109622c9fb6b1a36686e79bc775301398897656",
+    "source_sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+    "bytes": 41688,
+    "characters": 193,
+    "source_url": "https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip"
+  },
+  {
+    "file": "han_ui.otf",
+    "family": "Camera UI Han",
+    "sha256": "f7c1a3213f4b3dfd4d7c7a42166b8b9f6393f57b14331a19d578f31be6a549ee",
+    "source_sha256": "f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256",
+    "bytes": 1878360,
+    "characters": 7621,
+    "source_url": "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/2.005R/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf"
+  },
+  {
+    "file": "mono_ui.ttf",
+    "family": "Camera UI Mono",
+    "sha256": "8894c5014826a55d0dc08ba00452240e2745ef6db8dab527ac345d04993cd2fa",
+    "source_sha256": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+    "bytes": 29896,
+    "characters": 195,
+    "source_url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf"
+  }
+]

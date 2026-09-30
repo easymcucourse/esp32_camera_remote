@@ -10,6 +10,7 @@
 #include "nvs_flash.h"
 #include "wifi_ap.h"
 #include "camera_pair.h"
+#include "atom_link.h"
 
 void app_main(void)
 {
@@ -21,6 +22,10 @@ void app_main(void)
     // Preserve existing NVS; do not silently erase it on an incompatible layout.
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(board_7b_init(AP_SSID, AP_PASSWORD));
+    ESP_ERROR_CHECK(heap_caps_check_integrity_all(true) ? ESP_OK : ESP_FAIL);
+    ESP_LOGI("remote", "UI init stack headroom=%u bytes",
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
+    atom_link_start();
     wifi_ap_start();
     camera_pair_console_init();
     camera_jpeg_start();

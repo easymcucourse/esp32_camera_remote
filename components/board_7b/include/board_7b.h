@@ -11,6 +11,8 @@
 esp_err_t board_7b_init(const char *ssid, const char *password);
 // Call only before starting the JPEG worker or after it has drained.
 esp_err_t board_7b_show_connection(const char *status);
+// Refresh connection-screen peripheral status; Atom loss also disconnects DS4.
+void board_7b_set_atom_status(bool atom_online, bool controller_online);
 // Live-view status shown in the upper-right corner.
 void board_7b_set_wifi_rssi(int rssi);
 void board_7b_set_camera_info(const char *model, const char *firmware);
