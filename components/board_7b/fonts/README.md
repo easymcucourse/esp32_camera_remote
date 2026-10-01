@@ -44,7 +44,8 @@ $ftDll = python -c "import freetype, pathlib; print(pathlib.Path(freetype.__file
 gcc -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter `
     -Itools/font_preview_host/compat -Icomponents/board_7b/include `
     -Imanaged_components/espressif__freetype/freetype/include `
-    components/board_7b/ui_fonts.c tools/font_preview_host/preview.c `
+    components/board_7b/ui_fonts.c components/board_7b/camera_settings.c `
+    tools/font_preview_host/preview.c `
     $ftDll -o build/font-preview.exe
 $env:PATH = "$(Split-Path $ftDll);$env:PATH"
 .\build\font-preview.exe

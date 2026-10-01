@@ -1,0 +1,171 @@
+# 界面设计
+
+本文是 [界面显示方案](../request/ui-request.md) 的实现设计，记录当前各画面的布局参数和绘制流程，并定义规划功能（信息显示档位、对焦框、对焦放大、设置菜单、提示信息）的界面状态和绘制规则。显示接口的抽象和 `ui_presenter` 的分工见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md#11-显示抽象接口与-board_7b-实现) 第 11 节，本文不重复。
+
+> 草案：第 1–3 节描述当前实现（`components/board_7b/board_7b.c`），第 4 节起为规划设计。
+
+## 1. 显示参数
+
+| 项目 | 值 |
+| --- | --- |
+| 分辨率 | 1024×600，RGB565 |
+| 取景源图 | 1024×576，居中于 `(0,12)`，上下各 12 像素黑边 |
+| 设置页缩略图 | 768×432，位于 `(0,0)`，下方 y ≥ 432 显示扩展参数 |
+| 字体 | Inter（英文）、思源黑体（中文）、JetBrains Mono（数字），FreeType 灰度抗锯齿，见 [字体说明](../../components/board_7b/fonts/README.md) |
+| 自适应字号 | `fit_font_size()` 从请求字号逐级缩小，直到文字宽度不超过可用宽度，最小 12 像素 |
+
+颜色（RGB565）：
+
+| 用途 | 值 |
+| --- | --- |
+| 普通文字 | `0xFFFF` 白 |
+| 次要提示 | `0x7BEF` 灰 |
+| 标题、连接阶段 | `0x07FF` 青 |
+| 参数值、弱信号 | `0xFFE0` 黄 |
+| 已连接 | `0x07E0` 绿 |
+| 断开 | `0xF800` 红 |
+| 连接页背景 | `0x1082` |
+| 设置面板背景 / 分隔线 | `0x0841` / `0x7BEF` |
+
+## 2. 当前画面布局
+
+### 连接页
+
+背景 `0x1082`，所有文字左边距 48 像素，最大宽度 928 像素。
+
+| 元素 | 位置 `(x,y)` | 字号 | 颜色 |
+| --- | --- | --- | --- |
+| 标题 `easymcucourse camera station` | (48, 40) | 40，自适应 | 白 |
+| `SSID: …` | (48, 130) | 32，自适应 | 白 |
+| `Password: …` | (48, 190) | 32，自适应 | 白 |
+| `Expend unit (ATOM): …` | (48, 270) | 30 | 绿 / 红 |
+| `Controller (DS4): …` | (48, 330) | 30 | 绿 / 红 |
+| 连接阶段文字 | (48, 410) | 24，自适应 | 青 |
+| `Connect camera to this Wi-Fi.` | (48, 466) | 24 | 灰 |
+| `Enable PC Remote on camera.` | (48, 516) | 24 | 灰 |
+
+`Expend unit` 应改为 `Expansion unit`（修改清单 P2）。
+
+### 预览叠加层
+
+右上角黑底状态框，6 行，字号 18，内边距 8，距顶部和右边 8 像素；宽度按最长一行计算，最大为屏宽减 16。
+
+| 行 | 内容 | 颜色 |
+| --- | --- | --- |
+| 0 | `WIFI -60 DBM` / `WIFI -- DBM` | 白；RSSI 低于 −75 时黄 |
+| 1 | `FPS 3.8` | 白 |
+| 2 | `CAM ZV-E10` | 白 |
+| 3 | `FW 2.00` | 白 |
+| 4 | `MODE MOVIE A` | 白 |
+| 5 | `DS4 CONNECTED` / `DS4 DISCONNECTED` | 绿 / 红 |
+
+### 设置页
+
+左侧 768×432 缩略图，右侧 x ≥ 768 的 256 像素宽参数面板：背景 `0x0841`，x = 768 处为灰色分隔线。15 行，行高 38，首行 y = 12，左内边距 8，字号 18 自适应。
+
+| 行 | 内容 | 颜色 |
+| --- | --- | --- |
+| 0 | `CAMERA SETTINGS` | 青 |
+| 1–4 | WIFI、FPS、CAM、FW | 白 |
+| 5–13 | MODE、ISO、SHUTTER、APERTURE、EV、WB、FOCUS、METER、FLASH | 黄 |
+| 14 | DS4 状态 | 绿 / 红 |
+
+数值格式：ISO 低 24 位，`0x00FFFFFF` 为 AUTO；快门高 16 位 / 低 16 位为分子 / 分母，0 为 BULB；光圈为 F 值 ×100；EV 为 ×1000；枚举按属性代码查表，未收录时显示十六进制。
+
+## 3. 当前绘制流程
+
+```mermaid
+flowchart LR
+    jpeg["JPEG 对象"] --> pick{"源尺寸与模式"}
+    pick -->|"设置页 且 1024×576"| scaled["esp_new_jpeg 缩放到 768×432<br/>逐行 memmove 扩展行距"]
+    pick -->|"1024 宽 且 16 字节对齐"| fast["esp_new_jpeg 直接解码到后台帧缓冲"]
+    pick -->|"其他"| tjpg["ROM TJpgDec，最多 1/8 缩放"]
+    scaled & fast & tjpg --> overlay["绘制叠加层或设置面板"]
+    overlay --> publish["发布，等待两次帧完成"]
+    publish --> fps["记录 FPS"]
+```
+
+- 每帧先把整个后台帧缓冲清零，再解码和绘制。
+- FPS 以成功发布的帧间隔统计，约每秒更新；超过 2 秒无新帧时归零重新统计。
+- 连接页只在状态文字或 ATOM / DS4 状态变化时重绘。
+
+## 4. 界面状态（规划）
+
+`ui_presenter` 持有以下状态，全部由手柄动作和 `camera_model` 驱动：
+
+```c
+typedef enum { UI_SCREEN_CONNECTION, UI_SCREEN_LIVE, UI_SCREEN_SETTINGS } ui_screen_t;
+typedef enum { UI_INFO_FULL, UI_INFO_COMPACT, UI_INFO_HIDDEN } ui_info_level_t;
+
+typedef struct {
+    ui_screen_t     screen;
+    ui_info_level_t info_level;       /* NVS 保存 */
+    uint8_t         menu_cursor;      /* SETTINGS 中的光标行 */
+    bool            focus_box_on;
+    float           green_u, green_v; /* 绿框归一化坐标 0..1 */
+    struct { char text[16]; display_tone_t tone; int64_t until_us; } toast;
+} ui_state_t;
+```
+
+屏幕切换规则：链路不在 `LiveView` 时为 CONNECTION；第一帧显示后为 LIVE；Start 在 LIVE / SETTINGS 间切换；取景断开回到 CONNECTION，但保留 `info_level` 和 SETTINGS 偏好。
+
+## 5. 状态栏与信息显示档位（规划）
+
+状态栏条目按优先级排列，空间不足时从低优先级开始省略：
+
+| 优先级 | 条目 | 全显 | 精简 | 隐藏 |
+| --- | --- | --- | --- | --- |
+| 1 | `REC` 红点 + 时长 | ✓ | ✓ | 只显示红点 |
+| 2 | 命令提示 `PENDING` / `REJECTED` / `TIMEOUT` | ✓ | ✓ | — |
+| 3 | 电量告警（相机或手柄 ≤ 20%） | ✓ | ✓ | — |
+| 4 | `MF` / `MF BOX`、`MAG ×n` | ✓ | — | — |
+| 5 | `PAD 80%`、`CAM 75%` | ✓ | — | — |
+| 6 | WIFI、FPS、CAM、FW、MODE、DS4 | ✓ | — | — |
+
+对焦框在三个档位都绘制。
+
+## 6. 对焦框坐标（规划）
+
+所有位置使用以取景图像为基准的归一化坐标 `(u, v)`，`u, v ∈ [0, 1]`，左上为 `(0, 0)`：
+
+| 画面 | 图像区域 | 屏幕坐标 |
+| --- | --- | --- |
+| LIVE | `(0,12)`–`(1023,587)` | `x = u × 1024`，`y = 12 + v × 576` |
+| SETTINGS | `(0,0)`–`(767,431)` | `x = u × 768`，`y = v × 432` |
+
+- 相机坐标与 `(u, v)` 的换算待抓包确认属性 `0xD2DC` 的取值范围后补充。
+- 绿框边长为图像宽度的 8%，线宽 3 像素；红框同尺寸，线宽 2 像素。两框重合时只画绿框。
+- 绿框移动受限于图像区域，框体不越过边缘。
+
+## 7. 设置菜单（规划）
+
+- 菜单项顺序：Shutter、F-Number、ISO、EV、WB、Focus、Metering，与 [手柄控制方案](../request/gamepad-request.md#设置模式方向键) 一致；光标行背景高亮（`0x2945`，待定）。
+- 当前曝光 Mode 下不可写的项用灰色显示，光标仍可经过，左右键无效。
+- 修改后该行显示目标值和 `PENDING`；收到 `APPLIED` 后显示实际值；`REJECTED` / `TIMEOUT` 时恢复原值并显示 2 秒提示。
+
+## 8. 提示信息（规划）
+
+| 提示 | 色调 | 显示时长 |
+| --- | --- | --- |
+| `PENDING` | ACCENT | 直到状态变化，最长 2 秒 |
+| `REJECTED` | BAD | 2 秒 |
+| `TIMEOUT` | WARN | 2 秒 |
+| `NO ZOOM` | WARN | 1.5 秒 |
+
+提示显示在状态栏下方，不进入画面中心 50% 区域。同时只显示一条，新提示覆盖旧提示。
+
+## 9. 性能
+
+- 设置页缩放路径每帧 432 次 `memmove`，是设置页帧率低于全屏的主要原因之一。改进方向：解码器直接按 1024 行距输出，或缩略图单独缓冲后整块拷贝。
+- 叠加层内容约每秒才变化一次（FPS），可缓存渲染结果，内容 `revision` 不变时直接贴图。
+- 每帧整屏清零可改为只清黑边区域。
+
+## 10. 测试
+
+- 主机：`ui_build_status_screen` / `ui_build_overlay` 生成的行、色调与第 2 节一致；各档位条目取舍正确；归一化坐标换算在边界处不越界。
+- 主机：`tools/font_preview_host` 输出连接页、参数面板截图，人工比对。
+- 实机：三种画面切换、FPS 显示、断开返回连接页；规划功能按 [界面显示方案](../request/ui-request.md#验收测试) 验收。
+
+### 截图参数扩展
+
+设置页缩略图下方 `(0,432)`–`(767,599)` 增加两列五行只读参数，字号 18、行距 32。九项为画幅、驱动模式、照片效果、DRO、对焦区域、无线闪光、白平衡色温、白平衡 AB/GM 原始微调编码。白平衡模式、对焦模式、测光和闪光模式仍在右栏。未知枚举显示完整十六进制；缺失属性显示 `--`。无线闪光与白平衡微调尚未完成值映射验证，显示 RAW/十六进制，不猜测 ON/OFF 或 ±补偿值。扩展属性仅在整份 0x9209 数据集验证成功后发布。

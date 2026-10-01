@@ -1,12 +1,25 @@
 #include "atom_link.h"
 #include "board_7b.h"
 #include "camera_pair.h"
+#include "focus_input.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "atom_link";
+static focus_input_t focus_input;
+
+static void focus_buttons(uint32_t buttons, bool online, bool event)
+{
+    bool eligible = online && camera_focus_ready();
+    uint32_t keys = buttons & FOCUS_KEYS;
+    if (!eligible || !keys || keys == FOCUS_KEYS ||
+        (focus_input.held && keys != focus_input.held)) camera_focus_cancel();
+    uint32_t now = (uint32_t)((uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
+    int direction = focus_input_update(&focus_input, buttons, eligible, event, now);
+    if (direction) camera_focus_step(direction);
+}
 enum {
     ATOM_ADDRESS = 0x42,
     ATOM_CMD_RGB = 1,
@@ -32,6 +45,7 @@ static void report_buttons(uint32_t previous, uint32_t buttons)
     // DS4 Options is the Start button. Toggle only on its rising edge.
     if (pressed & DS4_START) {
         bool settings = board_7b_toggle_settings_mode();
+        camera_focus_cancel();
         ESP_LOGI(TAG, "DS4 Start/Options: %s screen", settings ? "settings" : "preview");
     }
     for (unsigned bit = 0; bit < sizeof(names) / sizeof(names[0]); ++bit) {
@@ -76,6 +90,7 @@ static void atom_link_task(void *arg)
             connected = false;
             if (controller_connected) ESP_LOGW(TAG, "DS4 disconnected (ATOM unavailable)");
             controller_connected = false;
+            focus_buttons(0, false, false);
             last_buttons = 0;
             board_7b_set_atom_status(false, false);
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -112,13 +127,17 @@ static void atom_link_task(void *arg)
                         ((uint32_t)reply[21] << 16) | ((uint32_t)reply[22] << 24);
                     if (id && id != event_ack) {
                         uint32_t cached = read_u24(reply + 23);
-                        report_buttons(event_buttons, cached);
+                        if (online) {
+                            report_buttons(event_buttons, cached);
+                            focus_buttons(cached, true, true);
+                        }
                         event_buttons = cached;
                         event_ack = id;
                         ESP_LOGI(TAG, "DS4 cached event=%lu", (unsigned long)id);
                     }
                 }
                 TickType_t now = xTaskGetTickCount();
+                focus_buttons(buttons, online, false);
                 if (online && (buttons != last_buttons ||
                     now - last_input_log >= pdMS_TO_TICKS(1000))) {
                     ESP_LOGI(TAG, "DS4 buttons=0x%05lx L=(%d,%d) R=(%d,%d) L2=%u R2=%u battery=%u",
@@ -135,6 +154,7 @@ static void atom_link_task(void *arg)
             connected = false;
             if (controller_connected) ESP_LOGW(TAG, "DS4 disconnected (ATOM link lost)");
             controller_connected = false;
+            focus_buttons(0, false, false);
             last_buttons = 0;
             board_7b_set_atom_status(false, false);
         }

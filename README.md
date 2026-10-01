@@ -4,7 +4,8 @@
 
 ## 功能与实测
 
-- WPA2 热点、PTP/IP 命令及事件通道，配对 GUID 持久化到 NVS。
+- WPA2 热点、动态 DHCP 地址发现、PTP/IP 双通道、配对 GUID 与相机绑定持久化。
+- 可取消网络等待，1–30 秒退避重连，取景 `0x200F` 临时拒绝复用会话。
 - 读取取景对象 `0xFFFFC002`，以 1024×576 原尺寸居中显示。
 - CPU0 接收，CPU1 独立任务使用 ESP32-S3 SIMD JPEG 解码。
 - 两个 1MiB 接收缓冲、LCD 双帧缓冲、30 行 DMA bounce buffer。
@@ -32,7 +33,7 @@
 | JPEG | espressif/esp_new_jpeg 1.0.2 |
 | 串口 | 115200 baud，本机 COM8 |
 
-引脚、扩展芯片和时序见 [硬件配置](docs/hardware.md)。JPEG 组件由组件管理器下载，版本固定在 manifest 和 `dependencies.lock`；首次构建需要网络。
+引脚、扩展芯片和时序见 [硬件配置](docs/design/hardware-design.md)。JPEG 组件由组件管理器下载，版本固定在 manifest 和 `dependencies.lock`；首次构建需要网络。
 
 ## 编译与烧录
 
@@ -69,7 +70,7 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 3. 首次连接进入配对等待画面；若提示确认，允许 **ESP32-Camera-Remote**。
 4. 页面依次显示等待相机、连接会话、配对确认和等待预览；第一帧成功解码显示后自动进入连续取景，上下各留 12 像素黑边。连接失败或取景断开后返回状态页并自动重试。
 
-当前针对实测设备配置：AP 为 `192.168.4.1`，相机为 `192.168.4.2`。更换相机或网络时，修改 `main/camera_pair.c` 的 `CAMERA_IP` 和 `camera_mac`；热点配置在 `main/wifi_ap.h` 的 `AP_SSID`、`AP_PASSWORD`，启动页面共用同一配置。尚未实现通用设备发现或配置界面。
+相机地址从 AP 客户端 DHCP 租约动态取得；未绑定时只接受唯一可达候选，绑定后按已保存 MAC 和相机 GUID 重连。更换相机先停止，再串口 `u` 清除相机身份。热点配置仍在 `main/wifi_ap.h`。连接恢复已完成主机回归和实机连接测试，见 [烧录与连接测试](docs/records/connection-test-20261001.md)；热点重启后的 DHCP 恢复仍需关注。流程见 [相机连接](docs/user-guide/camera.md)。
 
 ## 串口控制
 
@@ -77,10 +78,11 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 | --- | --- |
 | `j` | 开始／恢复取景，已运行时忽略重复请求 |
 | `S` | 切换设置显示模式：左侧 768×432 缩略图，右侧显示模式、ISO、快门、光圈、EV、白平衡、对焦、测光和闪光状态 |
-| `s` | 完成当前事务、排空解码任务并关闭会话，保留最后画面 |
+| `s` | 取消网络等待、清除控制请求、排空解码任务并关闭连接，保留最后画面 |
 | `p` | 配对及同一 GUID 重连诊断，需先停止取景 |
+| `u` | 空闲时清除相机身份；先 `s` 并等 `Camera task finished`，再 `u`、`j/p` 重新配对 |
 
-每约 5 秒记录显示帧率，每 10 秒报告客户端及内存。FPS 初始显示 0.0，约一秒后得到统计值；暂停时保留最后读数。握手等待确认时，停止可能需等待最长 120 秒。
+每约 5 秒记录显示帧率，每 10 秒报告客户端及内存。FPS 初始显示 0.0，约一秒后得到统计值；暂停时保留最后读数。握手和网络收发可取消；本轮取景中停止约 63 ms，完整结果见 [实机记录](docs/records/connection-test-20261001.md)。
 
 详细属性来自相机 `0x9209` 数据集，每 5 秒更新。解析采用 Sony 扩展布局中的当前值字段（属性代码、类型、get/set、enabled、默认值、当前值、表单）。Sony 编码按 `F-number × 100`、快门高低 16 位分子/分母、ISO 低 24 位和 EV × 1000 转为可读格式；例如快门显示为 `1/50`。`--` 表示相机报告“无值”或尚未取得数据。
 
@@ -90,7 +92,7 @@ Sony 扩展枚举按属性代码解释。抓包中的曝光模式 `0x00078051` �
 
 ```sh
 python tools/serial_log.py --port COM8 --command j --seconds 30 --output build/liveview.log
-python tools/serial_log.py --port COM8 --command s --seconds 15 --until "Camera task finished;" --output build/stop.log
+python tools/serial_log.py --port COM8 --command s --seconds 15 --until "Camera task finished" --output build/stop.log
 ```
 
 同一时刻只打开一个串口程序。记录器退出不会停止取景，添加 `--reset` 才会主动复位。
@@ -115,9 +117,13 @@ idf.py -p COM6 -b 115200 flash
 | Start / Options | 切换设置与预览界面 |
 | L1 | 循环切换上一个曝光 Mode |
 | R1 | 循环切换下一个曝光 Mode |
+| X / 方块 | LIVE+MF+变焦确认不可用时近对焦（+1） |
+| Y / 三角 | 同条件远对焦（−1） |
 | 其他按键 | 串口上报按下、松开，尚未绑定相机操作 |
 
 按住不重复触发；同一个事件同时按下 L1/R1 时不切换。Mode 操作在相机通信任务内排队执行，刷新 `0x9209` 属性、检查可写状态与枚举，再通过 `0x9205` 设置 `0x500E` UINT32 属性并回读。未连接、只读或无有效枚举时只记录原因。
+
+新增 X/Y 对焦：单击一步，按住 400 ms 后每 150 ms 请求一步，实际速度受相机事务限制；两键同按、松开、切设置页或断线时取消重复和待执行项。每步发送前重新确认 MF 和变焦不可用，正值向近处由用户确认。已烧录，主机测试通过；本轮相机报告变焦可用，MF 实际焦点移动仍待验收。非该条件下的 X/Y 放大/信息显示仍未实现。
 
 首次配对按住 SHARE + PS 至灯条快闪；已保存配对时按 PS 唤醒。ATOM 绿灯只表示 LCD 与 ATOM 的 I²C 通信建立，DS4 就绪以 `DualShock 4 connected; input ready` 和有效输入为准。LCD 的 `atom_link` 标签输出缓存事件、按键及输入快照。
 
@@ -133,11 +139,14 @@ python tools/serial_log.py --port COM8 --seconds 60 --output build/lcd-input.log
 ## 项目结构
 
 ```text
-main/                  启动、Wi-Fi AP、相机协议及解码任务流水线
-components/board_7b/   LCD 初始化、JPEG 解码、帧同步、FPS 绘制
+main/                  启动、Wi-Fi AP、连接控制、身份、手柄输入及解码流水线
+components/board_7b/   LCD 初始化、JPEG 解码、帧同步、字体及参数显示
+components/ptpip/      PTP/IP 传输、报文、会话及标准数据集解析
+components/sony_camera/ Sony 扩展命令、属性及能力解析
+tests/host/            九项可在主机运行的 C 回归测试
 m5_atom_matrix/        M5Stack ATOM Matrix 独立 ESP-IDF 子项目
 docs/                  硬件配置、协议分析和实测记录
-tools/                 编译、串口记录、抓包与离线分析
+tools/                 编译、串口记录、自动连接测试、抓包与离线分析
 sdkconfig.defaults     目标、内存和 O2 默认配置
 dependencies.lock      固定组件依赖版本
 partitions.csv         NVS、PHY、12MiB 应用和剩余 data 分区
@@ -160,7 +169,7 @@ python tools/analyze.py captures/your-capture.pcapng
 
 `tools/extract_liveview_sample.py` 是首轮抓包复现脚本，固定读取 `captures/remote-20260927-193841.pcapng`、TCP stream 0、事务 11。该原始文件不随仓库提供；Pillow 仅用于可选的 JPEG 尺寸验证。
 
-协议细节及性能迭代见 [通信分析与实测记录](docs/capture-analysis.md)。
+协议细节及性能迭代见 [通信分析与实测记录](docs/records/protocol-analysis.md)。
 
 ## 参考资料
 

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include "board_7b.h"
+#include "camera_settings.h"
 #include "ui_fonts.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
@@ -48,6 +49,10 @@ static atomic_uint prop_wb = 0xffff;
 static atomic_uint prop_focus = 0xffff;
 static atomic_uint prop_meter = 0xffff;
 static atomic_uint prop_flash = 0xffff;
+static atomic_uint prop_extra[CAMERA_EXTRA_COUNT] = {
+    UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
+    UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX
+};
 static SemaphoreHandle_t display_mutex;
 static bool showing_connection = true;
 static atomic_bool atom_connected, controller_connected;
@@ -172,9 +177,14 @@ void board_7b_set_camera_property(uint16_t code, uint32_t value)
     case 0x5010: atomic_store(&prop_ev, (int16_t)value); break;
     case 0xd20d: atomic_store(&prop_shutter, value); break;
     case 0xd21e: atomic_store(&prop_iso, value); break;
-    default: break;
+    default:
+        for (unsigned i = 0; i < CAMERA_EXTRA_COUNT; ++i)
+            if (code == camera_extra_codes[i]) atomic_store(&prop_extra[i], value);
+        break;
     }
 }
+
+bool board_7b_settings_mode(void) { return atomic_load(&settings_mode); }
 
 bool board_7b_toggle_settings_mode(void)
 {
@@ -399,6 +409,18 @@ static void draw_settings_panel(uint16_t *pixels)
     format_named_value(lines[13], sizeof(lines[13]), "FLASH", atomic_load(&prop_flash), 0xffff, flash_name);
     snprintf(lines[14], sizeof(lines[14]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
 
+    /* The thumbnail occupies 768x432; the lower strip holds extra properties. */
+    for (int y = 432; y < BOARD_LCD_HEIGHT; ++y)
+        for (int x = 0; x < 768; ++x)
+            pixels[y * BOARD_LCD_WIDTH + x] = 0x0841;
+    for (unsigned i = 0; i < CAMERA_EXTRA_COUNT; ++i) {
+        char text[40];
+        camera_extra_format(i, atomic_load(&prop_extra[i]), text, sizeof(text));
+        int x = 8 + (i % 2) * 384;
+        ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, x,
+                      438 + (i / 2) * 32, text,
+                      fit_font_size(text, 18, 368, true), 0xffe0, true, x + 368);
+    }
     const int left = 768, padding = 8, line_height = 38;
     for (int y = 0; y < BOARD_LCD_HEIGHT; ++y)
         for (int x = left; x < BOARD_LCD_WIDTH; ++x)
@@ -544,13 +566,11 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
                     return ESP_FAIL;
                 }
                 // Decoder output is tightly packed. Expand its stride in place,
-                // bottom-up, and vertically center it without another 648KiB buffer.
+                // bottom-up, leaving the lower strip for additional settings.
                 for (int y = 431; y >= 0; --y)
-                    memmove(jpeg_pixels + (84 + y) * BOARD_LCD_WIDTH,
+                    memmove(jpeg_pixels + y * BOARD_LCD_WIDTH,
                             jpeg_pixels + y * 768, 768 * sizeof(uint16_t));
-                for (int y = 0; y < 84; ++y)
-                    memset(jpeg_pixels + y * BOARD_LCD_WIDTH, 0, 768 * sizeof(uint16_t));
-                for (int y = 516; y < BOARD_LCD_HEIGHT; ++y)
+                for (int y = 432; y < BOARD_LCD_HEIGHT; ++y)
                     memset(jpeg_pixels + y * BOARD_LCD_WIDTH, 0, 768 * sizeof(uint16_t));
                 result = JDR_OK;
             // The camera's 1024-wide image has the same stride as the LCD.

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui_fonts.h"
+#include "camera_settings.h"
 
 #define FONT_BLOB(name, file) __asm__( ".section .rdata\n" \
     ".global _binary_" name "_start\n" \
@@ -116,6 +117,17 @@ int main(void)
         while (size > 12 && ui_fonts_measure(lines[i], size, true) > 240) --size;
         ui_fonts_draw(pixels, WIDTH, HEIGHT, 776, 12 + i * 38, lines[i], size,
             i == 0 ? 0x07FF : i >= 5 ? 0xFFE0 : 0xFFFF, true, 1016);
+    }
+    const uint32_t extra[] = {2,0,0x8000,1,2,1,5500,0xc0,0xc0};
+    for (int y=432; y<HEIGHT; ++y)
+        for (int x=0; x<768; ++x) pixels[y*WIDTH+x]=0x0841;
+    for (unsigned i=0; i<CAMERA_EXTRA_COUNT; ++i) {
+        char text[40]; camera_extra_format(i,extra[i],text,sizeof(text));
+        int size=18, x=8+(i%2)*384, y=438+(i/2)*32;
+        while (size>12 && ui_fonts_measure(text,size,true)>368) --size;
+        assert(ui_fonts_measure(text,size,true)<=368);
+        assert(y+ui_fonts_line_height(size)<=HEIGHT);
+        ui_fonts_draw(pixels,WIDTH,HEIGHT,x,y,text,size,0xffe0,true,x+368);
     }
     save("build/font-settings.ppm");
     return 0;

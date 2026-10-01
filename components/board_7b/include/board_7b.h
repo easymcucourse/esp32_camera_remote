@@ -19,5 +19,6 @@ void board_7b_set_camera_info(const char *model, const char *firmware);
 void board_7b_set_exposure_mode(uint32_t mode);
 void board_7b_set_camera_property(uint16_t code, uint32_t value);
 bool board_7b_toggle_settings_mode(void);
+bool board_7b_settings_mode(void);
 // Single JPEG worker only; owns decoder state and framebuffer publication.
 esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length);
