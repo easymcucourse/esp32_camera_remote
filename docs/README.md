@@ -1,6 +1,6 @@
 # 文档总览
 
-本目录收录使用手册、开发文档、需求、设计、工具用法和实测记录。项目概况见根目录 [README](../README.md)，ATOM 子项目见 [m5_atom_matrix/README.md](../m5_atom_matrix/README.md)。
+本目录收录使用手册、开发文档、需求、设计、工具用法和实测记录。当前源码状态与本次不一致核对见 [实施状态](development/implementation-status.md#代码与文档核对2026-10-03)；历史记录保留当时结论。项目概况见根目录 [README](../README.md)，ATOM 子项目见 [m5_atom_matrix/README.md](../m5_atom_matrix/README.md)。
 
 ## 开发环境
 
@@ -43,7 +43,7 @@ docs/
     build-and-flash.md           编译与烧录
     serial-log.md                串口日志工具
     testing.md                   测试与持续集成设计
-    licenses.md                  自有源码与第三方许可
+    implementation-status.md     实施 / 验收状态与代码文档核对
   request/                       需求：要做什么、做到什么程度
     README.md
     sony-ptpip-request.md        Sony 相机连接需求
@@ -62,6 +62,7 @@ docs/
     sony-ptpip-design.md         Sony PTP/IP 连接与分层设计
     ui-design.md                 界面设计
     gamepad-design.md            手柄输入处理设计
+    camera-menu-design.md        七项参数、目标合并与确认
     gimbal-design.md             BLE 云台控制设计
     i2c-protocol-design.md       LCD ↔ ATOM I²C 通信协议（版本 2）
     matrix-led-design.md         ATOM Matrix LED 状态显示设计
@@ -82,15 +83,15 @@ docs/
 
 | 主题 | 需求 | 设计 |
 | --- | --- | --- |
-| 相机连接 | [sony-ptpip-request](request/sony-ptpip-request.md) | [sony-ptpip-design](design/sony-ptpip-design.md) |
+| 相机连接 | [sony-ptpip-request](request/sony-ptpip-request.md) | 当前实现按源码核对；完整描述遍历 / 控制已接入，后续目标接口单独保留 |
 | 界面 | [ui-request](request/ui-request.md) | [ui-design](design/ui-design.md) |
-| 手柄 | [gamepad-request](request/gamepad-request.md) | [gamepad-design](design/gamepad-design.md) |
+| 手柄 | [gamepad-request](request/gamepad-request.md) | Start、X/Y、肩键、扳机及菜单已接入；相机动作待验收，镜头类型 UNKNOWN |
 | 云台 | [gimbal-request](request/gimbal-request.md) | [gimbal-design](design/gimbal-design.md) |
-| 灯阵 | [matrix-led-request](request/matrix-led-request.md) | [matrix-led-design](design/matrix-led-design.md) |
-| Wi-Fi 热点 | [wifi-ap-request](request/wifi-ap-request.md) | [wifi-ap-design](design/wifi-ap-design.md) |
-| UART 调试 | [uart-debug-request](request/uart-debug-request.md) | [uart-debug-design](design/uart-debug-design.md) |
+| 灯阵 | [matrix-led-request](request/matrix-led-request.md) | 启动 / 连接 / 异常模型与独立渲染已接入；物理映射及实机视觉待验收 |
+| Wi-Fi 热点 | [wifi-ap-request](request/wifi-ap-request.md) | 配置 / NVS / 串口 / 手柄页及两级重置已接入；全部重置实机与网页入口待完成 |
+| UART 调试 | [uart-debug-request](request/uart-debug-request.md) | LCD 行控制台与 wifi / factory 已接入；ATOM 控制台 / 模拟 / 脚本仍规划 |
 | 维护页面 / OTA | [maintenance-request](request/maintenance-request.md) | [maintenance-design](design/maintenance-design.md) |
-| LCD ↔ ATOM 链路 | 见手柄、云台、灯阵需求 | [i2c-protocol-design](design/i2c-protocol-design.md) |
+| LCD ↔ ATOM 链路 | 见手柄、云台、灯阵需求 | 两端当前为 v2，已构建 / 烧录 / 握手；高频与长期稳定性待验收 |
 | 整体 | [improvement-request](request/improvement-request.md) | [architecture-design](design/architecture-design.md)、[hardware-design](design/hardware-design.md)、[testing](development/testing.md) |
 
 ## request：需求
@@ -100,12 +101,12 @@ docs/
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [Sony 相机连接需求](request/sony-ptpip-request.md) | 相机发现、配对与重连、取景帧率、停止与恢复、断线恢复、属性读取、相机控制、健壮性 | 草案；部分已实现 |
-| [界面显示方案](request/ui-request.md) | 连接页、LIVE、SETTINGS 三种画面；状态栏、信息显示档位、手动对焦框、对焦放大、设置菜单和提示信息 | 部分实现，标注“规划”的尚未实现 |
-| [手柄控制方案](request/gamepad-request.md) | DS4 按键总表；扳机拍照录像、曝光 Mode、对焦框、变焦、云台等操作规则；Sony 协议验证表 | 已实现 Start、LB/RB；MF 且确认无变焦时 X/Y 对焦已接入，待实机验收 |
+| [界面显示方案](request/ui-request.md) | 连接页、LIVE、SETTINGS 与热点页；状态栏、信息显示档位、手动对焦框、对焦放大、设置菜单和提示信息 | 菜单、电量、REC 与控制状态已有代码；对焦框 / 放大 / 信息档位仍规划，视觉待验收 |
+| [手柄控制方案](request/gamepad-request.md) | DS4 按键总表；扳机拍照录像、曝光 Mode、对焦框、变焦、云台等操作规则；Sony 协议验证表 | Start、X/Y、肩键、扳机及菜单已接入；相机动作待验收，镜头类型 UNKNOWN |
 | [BLE 云台控制需求](request/gimbal-request.md) | 云台连接、左摇杆控制、L3 回中、安全停止、本地校准与限位 | 草案；目标为大疆 RS 3 Mini，BLE 协议未确认，未实现 |
-| [Matrix LED 状态显示需求](request/matrix-led-request.md) | ATOM 5×5 灯阵的启动进度、LCD 与无线设备连接灯、运行期异常图案；实机测试与验收标准 | 尚未实现 |
-| [Wi-Fi 热点需求](request/wifi-ap-request.md) | 固定默认值（`easycamctrl` / `00000000`）、修改 SSID / 密码 / 信道、NVS 持久化、密码显示开关、开机显示 LCD IP、恢复出厂 | 草案；未实现 |
-| [UART 调试需求](request/uart-debug-request.md) | 两端命令行控制台、状态查询、LCD 模拟 ATOM 与手柄、ATOM 模拟手柄与 LCD 主机、I²C 监视与故障注入、脚本回放 | 草案；未实现 |
+| [Matrix LED 状态显示需求](request/matrix-led-request.md) | ATOM 5×5 灯阵的启动进度、LCD 与无线设备连接灯、运行期异常图案；实机测试与验收标准 | 启动 / 连接 / 异常模型与独立渲染已接入；物理映射及实机视觉待验收 |
+| [Wi-Fi 热点需求](request/wifi-ap-request.md) | 固定默认值（`easycamctrl` / `00000000`）、修改 SSID / 密码 / 信道、NVS 持久化、密码显示开关、开机显示 LCD IP、恢复出厂 | 配置 / NVS / 串口 / 手柄页及两级重置已接入；全部重置实机与网页入口待完成 |
+| [UART 调试需求](request/uart-debug-request.md) | 两端命令行控制台、状态查询、LCD 模拟 ATOM 与手柄、ATOM 模拟手柄与 LCD 主机、I²C 监视与故障注入、脚本回放 | LCD 行控制台与 wifi / factory 已接入；ATOM 控制台 / 模拟 / 脚本仍规划 |
 | [维护页面需求](request/maintenance-request.md) | 维护模式开关与 PIN 登录、设备信息、网页修改 SSID / 密码 / 信道、LCD 固件 OTA 与自动回退 | 草案；未实现，需先调整分区表 |
 | [项目修改清单](request/improvement-request.md) | 审查结果按 P0–P3 列出的待办项和建议实施顺序 | 持续更新，完成后勾选 |
 
@@ -115,16 +116,17 @@ docs/
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
-| [当前系统架构](design/architecture-design.md) | 硬件连接、软件模块、启动顺序、任务与核心、队列与同步、缓冲区所有权、相机连接状态机、协议版本、持久化 | 草案；描述当前实现 |
+| [当前系统架构](design/architecture-design.md) | 硬件连接、软件模块、启动顺序、任务与核心、队列与同步、缓冲区所有权、相机连接状态机、协议版本、持久化 | 2026-10-03 按工作区源码核对 |
 | [硬件配置](design/hardware-design.md) | LCD-7B 引脚、扩展芯片、RGB 时序、帧缓冲；像素时钟选型 | 与当前实现一致 |
-| [Sony PTP/IP 连接与分层设计](design/sony-ptpip-design.md) | 当前连接流程、网络配置、GUID、初始化、控制与验证范围；后续分层接口及迁移步骤 | 当前实现与目标设计分节说明；已拆分并接入 MF/扩展属性，完整接口尚未实施 |
-| [界面设计](design/ui-design.md) | 当前各画面的坐标、字号、颜色和绘制流程；规划功能的界面状态、对焦框坐标换算、菜单与提示规则 | 草案；前半部分为当前实现 |
-| [手柄输入处理设计](design/gamepad-design.md) | LCD 端 `gamepad_input` 模块：按键边沿、扳机状态机、S1/S2 合成、命令优先级、安全释放 | 草案；未实现 |
+| [Sony PTP/IP 连接与分层设计](design/sony-ptpip-design.md) | 当前连接流程、网络配置、GUID、初始化、控制与验证范围；后续分层接口及迁移步骤 | 当前实现按源码核对；完整描述遍历 / 控制已接入，后续目标接口单独保留 |
+| [设置菜单控制](design/camera-menu-design.md) | 七项参数、Focus 快捷共用、相对步进与回读确认 | 已接入，协议效果与视觉待验收 |
+| [界面设计](design/ui-design.md) | 当前各画面的坐标、字号、颜色和绘制流程；规划功能的界面状态、对焦框坐标换算、菜单与提示规则 | 第 1–3、7 节描述当前实现，其余为后续目标 |
+| [手柄输入处理设计](design/gamepad-design.md) | LCD 端 `gamepad_input` 模块：按键边沿、扳机状态机、S1/S2 合成、命令优先级、安全释放 | gamepad_input / camera_actions / 参数目标已接入；对焦框等仍规划 |
 | [BLE 云台控制设计](design/gimbal-design.md) | ATOM 端云台模块：摇杆曲线、回中、软限位、停止条件、连接状态、NVS 配置、厂商协议适配层 | 草案；未实现 |
-| [I²C 通信协议（版本 2）](design/i2c-protocol-design.md) | 帧格式、CRC8、HELLO/POLL 命令、事件缓存与 `gap` 标志；云台在 ATOM 本地控制 | 设计方案，尚未实现；当前版本 1 见 ATOM 子项目说明 |
-| [Matrix LED 状态显示设计](design/matrix-led-design.md) | 物理映射、颜色取值、状态模型与状态来源、渲染时序、模块接口、Bluetooth 双模限制 | 设计方案，尚未实现 |
-| [Wi-Fi 热点设计](design/wifi-ap-design.md) | NVS 记录格式、固定默认值与随机密码生成、校验与国家码、`wifi_ap` 任务与生效流程、串口命令与手柄热点页、连接页 IP 显示、按 MAC 取相机 RSSI、两级恢复出厂 | 草案；未实现 |
-| [UART 调试控制台设计](design/uart-debug-design.md) | 两端共用的行输入控制台与输出格式、单字符命令兼容、手柄动作解析与定时执行、LCD 模拟 ATOM 传输层、ATOM 模拟手柄与从机故障注入、I²C 监视、`uart_script.py` 脚本格式 | 草案；未实现 |
+| [I²C 通信协议（版本 2）](design/i2c-protocol-design.md) | 帧格式、CRC8、HELLO/POLL 命令、事件缓存与 `gap` 标志；云台在 ATOM 本地控制 | 两端当前为 v2，已构建 / 烧录 / 握手；高频与长期稳定性待验收 |
+| [Matrix LED 状态显示设计](design/matrix-led-design.md) | 物理映射、颜色取值、状态模型与状态来源、渲染时序、模块接口、Bluetooth 双模限制 | 纯 C matrix_model 与 matrix_status 已接入；硬件效果待验收 |
+| [Wi-Fi 热点设计](design/wifi-ap-design.md) | NVS 记录格式、固定默认值与随机密码生成、校验与国家码、`wifi_ap` 任务与生效流程、串口命令与手柄热点页、连接页 IP 显示、按 MAC 取相机 RSSI、两级恢复出厂 | 当前配置 API / NVS / 菜单 / 两级重置已接入，剩余目标明确标注 |
+| [UART 调试控制台设计](design/uart-debug-design.md) | 两端共用的行输入控制台与输出格式、单字符命令兼容、手柄动作解析与定时执行、LCD 模拟 ATOM 传输层、ATOM 模拟手柄与从机故障注入、I²C 监视、`uart_script.py` 脚本格式 | LCD 行输入与 wifi / factory 部分实现；完整框架和 ATOM 端仍规划 |
 | [维护页面设计](design/maintenance-design.md) | OTA 分区表、维护模式状态机、PIN 与令牌登录、HTTP 接口、网页热点设置、OTA 镜像检查与上传流程、启动自检与回退 | 草案；未实现 |
 
 ## user-guide：使用手册
@@ -136,7 +138,7 @@ docs/
 | [快速上手](user-guide/quick-start.md) | 烧录 LCD 与 ATOM、接线、第一次连接相机 |
 | [相机连接](user-guide/camera.md) | 热点、动态 DHCP 发现、配对与恢复步骤 |
 | [手柄](user-guide/controller.md) | DS4 配对、已实现按键、Mode 切换的已知限制 |
-| [串口命令](user-guide/serial.md) | `j` / `s` / `S` / `p` / `u` 和画面参数 |
+| [串口命令](user-guide/serial.md) | j / s / S / p / u、wifi、两级恢复出厂及画面参数 |
 | [故障排查与恢复](user-guide/troubleshooting.md) | 相机、显示、ATOM、编译的常见问题；清除 NVS 和恢复出厂设置 |
 
 ## development：开发
@@ -147,6 +149,7 @@ docs/
 | --- | --- | --- |
 | [编译与烧录](development/build-and-flash.md) | 两个工程的编译烧录、`idf.ps1` 参数、哪些改动需要烧录哪一端、主机测试、字体工具 | 与当前脚本一致 |
 | [串口日志](development/serial-log.md) | `serial_log.py` 参数和示例、LCD 串口命令、日志关键字含义 | 与当前脚本一致 |
+| [实施与验收状态](development/implementation-status.md) | 当前源码证据、剩余目标、实机边界与代码文档核对 | 2026-10-03 核对；28 项 CTest 通过 |
 | [测试与持续集成设计](development/testing.md) | 测试分层、主机测试约定与计划、故障注入、30 分钟稳定性指标、CI 作业 | 草案；CI 未建立 |
 
 ## tools：工具

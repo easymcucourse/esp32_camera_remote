@@ -33,6 +33,17 @@ python tools/analyze.py captures/your-capture.pcapng --tshark "D:\Wireshark\tsha
 
 用 tshark Follow TCP 重组每个方向的数据，再按 PTP/IP 的 length/type 拆包，输出同名 `.ptpip.csv`。CSV 按方向排列而非时间线，时序以原始抓包为准。
 
-## 样本提取：`tools/extract_liveview_sample.py`
+## 历史取景样本：`tools/extract_liveview_sample.py`
 
 首轮抓包的复现脚本，固定读取 `captures/remote-20260927-193841.pcapng` 的 TCP stream 0、事务 11，导出一个取景对象和其中的 JPEG。原始抓包不随仓库提供。修改清单 P3 计划让它接受抓包文件、stream 和事务号参数，用于导出测试样本。
+
+
+## 属性样本提取：`tools/extract_property_sample.py`
+
+该工具从指定抓包的成功 0x9209 事务导出完整属性数据，--stream 必填；--transaction 可指定事务号，省略时导出该流中首个完整且成功的匹配数据集；--tshark 可指定程序路径，--max-packets 默认 50000。输出目录自动创建，找不到对应属性事务会报错。
+
+```powershell
+python tools/extract_property_sample.py captures/remote-20261001-200950.pcapng captures/props-200950.bin --stream 4 --transaction 9 --tshark "C:/Program Files/Wireshark/tshark.exe"
+```
+
+完整输出可能含未知属性，应保留在已忽略的 captures/。仓库 fixtures 是另外裁剪出的整数属性样本；来源、裁剪规则和提交范围见 [样本说明](../../tests/host/fixtures/README.md)。

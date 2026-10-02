@@ -17,7 +17,7 @@
 
 启动先关背光，配置屏幕电源，初始化帧缓冲及 RGB 外设，再开背光。实时取景为 1024×576，居中坐标 `(0,12)`。
 
-ATOM Matrix 作为 Grove I²C 从系统，地址 `0x42`，复用 LCD 的 GPIO8/9 主总线。ATOM SDA/SCL 为 GPIO26/32，两端共地。LCD 定期读取按键状态和累计次数，连接时设置 ATOM 灯阵为绿色。接线及协议见 [ATOM 子项目说明](../../m5_atom_matrix/README.md)。
+ATOM Matrix 作为 Grove I²C 从系统，地址 `0x42`，复用 LCD 的 GPIO8/9 主总线。ATOM SDA/SCL 为 GPIO26/32，两端共地。LCD 通过 v2 HELLO / POLL 读取状态、输入快照、缓存事件和板载按键次数；灯阵由 ATOM 独立状态任务控制，不再由 LCD 设置颜色。接线及协议见 [ATOM 子项目说明](../../m5_atom_matrix/README.md)，图案见 [灯阵设计](matrix-led-design.md)。
 
 30MHz 像素时钟在连续取景时曾出现扫描起点上下跳动；40MHz 实测显示异常。18MHz 配合双帧缓冲已由用户确认稳定。LCD 扫描频率不同于右上角的画面更新 FPS。
 

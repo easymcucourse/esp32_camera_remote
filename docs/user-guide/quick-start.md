@@ -25,7 +25,7 @@ idf.py build
 idf.py -p COM6 -b 115200 flash
 ```
 
-本机 LCD 为 COM8、ATOM 为 COM6。ATOM 使用 115200 波特率烧录。
+本机 LCD 为 COM8、ATOM 为 COM6。ATOM 使用 115200 波特率烧录。当前 I²C 协议为 v2，从 v1 升级时必须同时烧录 LCD 和 ATOM。
 
 ## 接线
 
@@ -33,7 +33,7 @@ LCD GPIO8（SDA）、GPIO9（SCL）、GND 连接 ATOM GPIO26、GPIO32、GND。�
 
 ## 连接相机
 
-1. 板子启动后显示连接页。当前固件热点为 SSID **esp32camap**、密码 **00000000**，信道 6。
+1. 板子启动后显示连接页。无保存配置时，热点为 **easycamctrl**、密码 **00000000**、信道 6；已配置过时以屏幕或 `wifi show` 为准。
 2. 相机连接该热点，启用 PC 远程，选择 Wi-Fi 接入点连接。
 3. 首次连接若提示确认，允许 **ESP32-Camera-Remote**。
 4. 第一帧解码成功后进入连续取景。失败后会回到状态页并自动重试。

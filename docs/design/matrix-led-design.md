@@ -4,6 +4,8 @@
 
 本设计不实现 BLE 手柄或 BLE 云台连接功能，只为它们预留状态入口。
 
+工作区已接入纯 C `matrix_model` 和独立 `matrix_status` 任务，包括启动、连接、三种异常、异步 HID 初始化超时与 RMT 恢复。主机图案和计时测试通过；物理四角映射、恢复故障注入及稳定性仍待实机验收。
+
 ## 设计约束
 
 - LED 渲染器独占 RMT，其他模块只提交状态，不直接刷新灯阵。
@@ -47,6 +49,8 @@ ATOM Matrix 的 WS2812 按行顺序串联，物理索引通常为 `y * 5 + x`。
 `matrix_status_init()` 本身失败时灯阵无法显示任何内容，只能依赖串口日志。
 
 ## 状态模型
+
+下面的类型片段表达设计中的状态字段；当前实际类型为 `matrix_model.h` 中的 matrix_link_t、matrix_boot_t、matrix_model_t，纯 C 模型使用调用方传入的 uint32_t 毫秒。实际故障位为 MATRIX_OVERFLOW / MATRIX_PROTOCOL / MATRIX_BLUETOOTH，公共提交接口见后文；不要把概念类型名当作现有头文件 API。
 
 无线设备统一使用以下状态：
 
@@ -113,13 +117,13 @@ typedef struct {
 - 从未收到命令且 `now - boot_tick <= 10 s` 时显示 LCD 启动等待动画。
 - 超过 1500 ms 没有心跳，或首次等待超时，显示静态断开。
 
-当前 LCD 在线时每轮为“发送 → 等待 30 ms → 接收 → 等待 20 ms”，约 50 ms 查询一次，1500 ms 阈值可以容忍调度延迟和短暂总线繁忙。
+当前 LCD 采用 v2 HELLO / POLL，50 ms 周期，写后等待 15 ms；1500 ms 心跳阈值容忍短暂总线繁忙。
 
-LCD 端在链路断开后只做地址探测（不带数据），ATOM 不会把探测视为合法命令；恢复后 LCD 首先发送 `ATOM_CMD_RGB`，该命令按心跳处理（见下文“迁移”）。
+地址探测不作为心跳，恢复后先 HELLO。CRC、版本、命令和参数合法的请求刷新心跳，NOT_READY 表示执行尚未就绪，仍是合法请求。RGB 命令已移除。
 
 ### 经典蓝牙手柄
 
-`ds4_host` 新增 `ds4_host_get_link_state()`，在内部锁中读取标志并映射：
+`ds4_host_status()` 和 `ds4_host_poll()` 在内部锁中读取并使用同一连接状态映射：
 
 | 内部条件 | 状态 |
 | --- | --- |
@@ -156,23 +160,13 @@ LCD 端在链路断开后只做地址探测（不带数据），ATOM 不会把�
 
 ### I²C 协议错误
 
-当前 8 字节命令帧格式为 `A5 01 seq cmd p0 p1 p2 p3`，没有校验字段。以下情况计为非法命令：
-
-- 帧头不是 `0xA5`；
-- 版本不是 `1`；
-- 命令号不是 `0..3`。
-
-接收端必须能从错位中恢复，否则一旦丢失一个字节，后续每帧都会错位，异常永远无法清除：
-
-- 当前缓冲第 0 字节不是 `0xA5` 时，丢弃该字节并在剩余数据中搜索下一个 `0xA5`；
-- 半帧数据超过 20 ms 没有新字节到达时清空缓冲；
-- 若后续需要更强的完整性保证，在协议版本 2 中增加校验字段，不在版本 1 中隐式修改帧格式。
+协议 v2 为 9 字节请求，校验 CRC、版本、命令和参数；CRC 错误、版本 / 命令未知、参数无效及整段垃圾数据计为非法请求。接收器搜索下一帧头，20 ms 半帧超时清除，详见 [I²C v2](i2c-protocol-design.md)。使用最近三个错误时间的滑动窗口，2 秒内至少三次触发；连续三次合法请求清除。清除时也重置错误历史，防止健康恢复后单个坏帧立即再次触发。
 
 ### 事件缓存溢出
 
 溢出检测由渲染任务周期读取各模块的 `dropped` 计数，发现变化即触发，不依赖 LCD 是否正在发送事件查询命令，也不在 `ds4_events_push()` 所在临界区内调用 LED 接口。
 
-`ds4_events` 溢出时丢弃最旧事件，事件 ID 连续递增（跳过 0），因此 LCD 端可在不改协议的前提下检测丢失：收到的事件 ID 不等于 `ack + 1`（跳过 0）时视为发生过丢失，此时只用该事件的按键快照同步 `event_buttons`，不调用 `report_buttons()` 生成边沿动作。该检查需要在 `main/atom_link.c` 中实现。
+`ds4_events` 丢弃最旧事件并递增 dropped；渲染任务直接轮询 dropped，离线也能触发 5 秒警告，再次溢出延长警告。协议的 gap / 故障位保持到携带 gap 的事件被确认，独立于 LED 的 5 秒提示。LCD 对 gap 只同步位图并取消旧输入，不用事件跳号推断缺口。
 
 ### LED/RMT 自身错误
 
@@ -187,7 +181,7 @@ LCD 端在链路断开后只做地址探测（不带数据），ATOM 不会把�
 
 ## 渲染时序
 
-- 渲染在独立任务中执行，优先级低于 I²C 命令处理，避免 RMT 等待影响 LCD 读取回复。LCD 发送命令后只等待 30 ms 即读取，I²C 处理路径中不得有阻塞渲染或长延时。
+- 渲染在独立任务中执行，优先级低于 I²C 命令处理，避免 RMT 等待影响 LCD 读取回复。LCD 发送命令后只等待 15 ms 即读取，I²C 处理路径中不得有阻塞渲染或长延时。
 - 动画 tick 为 125 ms：启动进度闪烁为 2 个 tick 亮、2 个 tick 灭；连接中闪烁同为 250 ms 亮灭；后台搜索为每 16 个 tick 亮 1 个 tick；LCD 等待动画每 tick 前进一步。
 - 闪烁相位按绝对时间计算，例如 `((now - boot_tick) / 250 ms) & 1`，不依赖累计计数，避免调度抖动积累。
 - 只在动画步进、状态变化或异常变化时生成并发送新帧；静态画面另外每 2 秒低频重发一次，防止干扰导致灯珠状态错乱后长期停留。
@@ -195,30 +189,31 @@ LCD 端在链路断开后只做地址探测（不带数据），ATOM 不会把�
 - 状态变化与渲染通过临界区同步；setter 只修改快照字段，不调用 RMT。
 - 图案优先级集中在一个函数中决定：启动进度 > 运行期异常 > 普通状态。业务模块不得绕过优先级直接写像素。
 
-## 建议模块接口
+## 当前模块接口
 
-将现有 `m5_atom_matrix/main/app_main.c` 中的 RMT、颜色和 `matrix_show()` 拆到 `matrix_status.c/.h`。建议接口：
+RMT 和灯阵绘制已从 app_main 拆至 matrix_status / matrix_model。`matrix_status.h` 当前接口为：
 
 ```c
 esp_err_t matrix_status_init(void);
-void matrix_status_boot_stage(matrix_boot_stage_t stage);
+void matrix_status_boot_stage(matrix_boot_t stage);
+void matrix_status_hid_result(bool success);
+void matrix_status_host_task_started(void);
 void matrix_status_note_lcd_command(bool valid);
-void matrix_status_set_ble_gamepad(matrix_link_state_t state);
-void matrix_status_set_ble_gimbal(matrix_link_state_t state);
-void matrix_status_raise_fault(matrix_fault_t fault);
-void matrix_status_clear_fault(matrix_fault_t fault);
+void matrix_status_set_ble_gamepad(matrix_link_t link);
+void matrix_status_set_ble_gimbal(matrix_link_t link);
+uint8_t matrix_status_faults(void);
 ```
 
-`app_main` 的初始化顺序调整为：
+当前 app_main 初始化顺序如下；外设阶段由 atom_i2c 启动路径推进：
 
 ```c
 ESP_ERROR_CHECK(matrix_status_init());                 // 阶段 0 完成
-matrix_status_boot_stage(MATRIX_BOOT_PERIPHERALS);
 button_init();
-ESP_ERROR_CHECK(grove_i2c_init());
+ESP_ERROR_CHECK(atom_i2c_start());
 matrix_status_boot_stage(MATRIX_BOOT_STORAGE);
 ESP_ERROR_CHECK(ds4_host_init());                      // 内部依次推进 STORAGE、BLUETOOTH、HID_HOST
-// HID_HOST 在 ESP_HIDH_INIT_EVT 成功时推进到 DONE
+atom_i2c_ready();
+// HID 回调结果和连接任务创建均成功后推进到 DONE
 ```
 
 实现约束：
@@ -231,7 +226,7 @@ ESP_ERROR_CHECK(ds4_host_init());                      // 内部依次推进 STO
 
 ### 迁移
 
-- LCD 的 `ATOM_CMD_RGB` 不再覆盖灯阵。继续接受该命令，但忽略颜色载荷，只作为心跳；回复格式不变。
+- v2 已删除 RGB 命令，仅 HELLO / POLL 刷新心跳。
 - ATOM 按键不再切换灯阵颜色，只保留按下状态和按下计数上报。
 - 按键去抖改为非阻塞方式（记录首次按下时刻，下一轮循环确认），去掉主循环中的 `vTaskDelay(30)`，避免延误 I²C 回复。
 
@@ -263,6 +258,10 @@ ESP_ERROR_CHECK(ds4_host_init());                      // 内部依次推进 STO
 - 验证多个异常同时存在时的优先级，以及清除低优先级异常不影响高优先级异常。
 - 验证 I²C 接收在丢失 1 字节、插入多余字节后能重新对齐。
 - 验证 TickType 回绕附近的 LCD 超时、启动等待和溢出截止时间。
-- 验证 LCD 端事件 ID 跳号检测（含跨越 0 的情况）不产生按键边沿。
+- 验证 v2 gap、boot_id 变化和事件 ID 回绕不产生伪按键边沿。
 
 实机测试和验收标准见需求文档。
+
+## 当前验证边界
+
+`matrix_model` 的参考图案、125 / 250 / 500 / 2000 ms 节奏、10 秒等待、1500 ms 心跳、5 秒溢出、启动收尾、异步 HID 回调顺序 / 3 秒超时、错误滑动窗口及计时回绕有主机覆盖。RMT 使用持久缓冲，发送等待超时后不再覆盖它，先停通道再恢复；恢复间隔 1 秒，连续五次恢复 / 恢复后刷新失败停止尝试并持续记录日志。此 SDK 路径尚需硬件故障注入。逻辑到物理映射当前为行顺序，必须通过四角校准确认安装方向。

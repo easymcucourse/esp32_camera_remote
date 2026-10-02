@@ -9,8 +9,9 @@
 | [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md) | 当前连接流程、实现边界、协议事实及后续目标分层 |
 | [界面设计](ui-design.md) | 坐标、字号、绘制流程 |
 | [手柄输入处理设计](gamepad-design.md) | LCD 端按键到命令 |
+| [设置菜单控制](camera-menu-design.md) | 七项参数、目标合并、回读与 UI 状态 |
 | [BLE 云台控制设计](gimbal-design.md) | ATOM 端云台模块 |
-| [I²C 通信协议（版本 2）](i2c-protocol-design.md) | LCD 与 ATOM 的下一版帧格式 |
+| [I²C 通信协议（版本 2）](i2c-protocol-design.md) | LCD 与 ATOM 当前 v2 帧格式及验证边界 |
 | [Matrix LED 状态显示设计](matrix-led-design.md) | 灯阵状态模型和接口 |
 | [Wi-Fi 热点设计](wifi-ap-design.md) | NVS、校验和生效流程 |
 | [UART 调试控制台设计](uart-debug-design.md) | 命令行、模拟和脚本 |

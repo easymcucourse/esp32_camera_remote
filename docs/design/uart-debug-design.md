@@ -2,7 +2,7 @@
 
 本文是 [UART 调试需求](../request/uart-debug-request.md) 的实现设计，定义两端控制台的行输入、命令注册、输出格式、LCD 的模拟 ATOM、ATOM 的模拟手柄与从机故障注入、I²C 监视，以及主机脚本工具 `tools/uart_script.py`。需求编号（R1.1 等）指需求文档中的条目。
 
-> 草案：本设计尚未实现。模拟 ATOM 依赖 [I²C 通信协议（版本 2）](i2c-protocol-design.md) 的公共协议代码，按第 11 节的顺序实施。
+> 目标设计：LCD 已有按行输入、共享引号 / 转义解析、help / wifi / factory 和旧单字符命令；完整命令注册框架、ATOM 控制台、状态 / log / 模拟 / 故障注入与 uart_script.py 尚未实现。当前可执行命令见 [串口手册](../user-guide/serial.md)。模拟 ATOM 依赖 [I²C 通信协议（版本 2）](i2c-protocol-design.md) 的公共协议代码，按第 11 节的顺序实施。
 
 ## 1. 设计约束
 

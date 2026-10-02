@@ -1,219 +1,188 @@
 # 当前系统架构
 
-本文描述**当前固件**的整体结构：硬件连接、软件模块、任务与核心、队列与同步、缓冲区所有权、相机连接状态机和各链路的协议版本。重构目标见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md)；本文随实现变化更新。
-
-> 草案：内容依据当前 `main/`、`components/board_7b/` 和 `m5_atom_matrix/main/` 源码整理。
+本文按 2026-10-03 工作区源码描述模块、任务、协议与持久化。代码接入不代表实机验收通过，验证证据及剩余需求见 [实施状态](../development/implementation-status.md)。后续目标接口见 [Sony PTP/IP 分层设计](sony-ptpip-design.md)。
 
 ## 1. 系统组成
 
 ```mermaid
 flowchart LR
-    DS4["DualShock 4"] -- "Classic BT HID" --> ATOM["M5Stack ATOM Matrix<br/>经典 ESP32"]
-    ATOM -- "I²C 100kHz<br/>协议版本 1" --> LCD["Waveshare LCD-7B<br/>ESP32-S3"]
+    DS4["DualShock 4"] -- "Classic BT HID" --> ATOM["ATOM Matrix · ESP32"]
+    ATOM -- "I²C 100 kHz · v2 · 0x42" --> LCD["LCD-7B · ESP32-S3"]
     CAM["Sony ZV-E10"] -- "Wi-Fi STA" --> LCD
-    LCD -- "PTP/IP TCP 15740<br/>命令 + 事件两条连接" --> CAM
+    LCD -- "PTP/IP TCP 15740 · 命令与事件双通道" --> CAM
     PC["PC 串口"] -- "UART 115200" --> LCD
 ```
 
-| 设备 | 角色 | 固件工程 |
-| --- | --- | --- |
-| LCD-7B（ESP32-S3，16MB Flash，8MB Octal PSRAM） | Wi-Fi 热点、PTP/IP 客户端、JPEG 解码与显示、I²C 主机 | 根目录 |
-| ATOM Matrix（ESP32-PICO） | DS4 蓝牙主机、I²C 从机（地址 `0x42`）、5×5 灯阵 | `m5_atom_matrix/` |
-| Sony ZV-E10 | PTP/IP 服务端，提供取景对象 `0xFFFFC002` | — |
-
-硬件引脚和时序见 [硬件配置](hardware-design.md)。
+LCD 工程位于根目录，ATOM 独立工程位于 `m5_atom_matrix/`。LCD 不启用触摸；ATOM 当前仅支持经典蓝牙 DS4，BLE Xbox 兼容手柄与云台尚未实现。左摇杆不上报 LCD，L3 从实时位图和缓存事件中清除。引脚、时序见 [硬件配置](hardware-design.md)。
 
 ## 2. 软件模块
 
 ### LCD 端
 
-| 模块 | 文件 | 职责 |
-| --- | --- | --- |
-| 启动 | `main/app_main.c` | 初始化顺序；每 10 秒记录客户端和内存 |
-| Wi-Fi 热点 | `main/wifi_ap.c/.h` | 创建 SoftAP；查询客户端、DHCP 地址和 RSSI |
-| 相机身份 | `main/camera_identity.c` | NVS GUID/peer 加载、旧记录迁移、成功确认及清除 |
-| 连接策略 | `main/camera_link.c` | 候选身份筛选、唯一目标判定、退避 |
-| 相机控制 | `main/camera_controller.c`、`main/camera_pair.h` | 保留原公开接口；动态发现、握手、配对绑定、退避重连、Sony 初始化、取景生产端、Mode/MF 请求与属性显示更新 |
-| PTP/IP | `components/ptpip/` | socket 传输、原有事务与事件排空、DeviceInfo 解析、小端字段工具和协议常量 |
-| Sony 协议 | `components/sony_camera/` | Mode 旧搜索解析、完整标量/MF 能力解析、曝光 Mode 与 MF 写入；属性通过同步回调交给控制器显示 |
-| 取景解码 | `main/liveview_pipeline.c/.h` | 双槽上下文、JPEG 对象边界检查、解码工作任务和帧统计 |
-| 串口控制台 | `main/camera_console.c/.h` | 保留 `j` / `s` / `S` / `p` 单字符命令 |
-| ATOM 链路 | `main/atom_link.c/.h` | I²C 轮询 ATOM，处理缓存按键事件，触发界面切换和 Mode 切换 |
-| 板级与显示 | `components/board_7b/board_7b.c` | I²C 总线、IO 扩展器、RGB 面板、帧缓冲、三条 JPEG 解码路径、连接页 / 叠加层 / 设置面板绘制、FPS 统计、Sony 枚举名称 |
-| 字体 | `components/board_7b/ui_fonts.c` | FreeType 灰度渲染、字形缓存 |
+| 模块 / 文件 | 当前职责 |
+| --- | --- |
+| `main/app_main.c` | NVS 初始化、热点配置加载、显示及任务启动，每 10 秒记录内存 |
+| `main/wifi_config.*`、`wifi_apply.*` | 纯 C 默认值、字段校验、100 字节记录、随机密码、保存与驱动重启 / 回滚策略 |
+| `main/wifi_ap.*`、`factory_reset.*` | AP / DHCP / 目标 RSSI、NVS、异步配置队列；全部重置前停止并保留相机维护占用，成功后重启 |
+| `main/wifi_menu.*`、`wifi_menu_ui.*` | 热点草稿、SSID 编辑、二次确认及异步结果；相机离线时也可导航 |
+| `main/camera_identity.*`、`camera_link.*` | GUID / peer 读取、迁移、确认、清除；唯一候选选择及退避 |
+| `main/camera_controller.c`、`camera_pair.h` | socket 所有者、双通道握手、Sony 初始化、取景生产、属性刷新、控制执行及维护占用 |
+| `main/gamepad_input.*`、`camera_actions.*` | 输入边沿、扳机迟滞、按键映射、方向键重复；高优先级动作缓存及独立释放屏障 |
+| `main/setting_control.*`、`camera_menu.*` | Mode 与七项参数的目标合并、回读确认、拒绝及超时；Focus 菜单与 X 共用状态 |
+| `main/atom_link.*`、`common/atom_client.*` | I²C v2 主机收发、HELLO / POLL、重试、事件确认、boot_id / gap 及输入清理 |
+| `main/camera_console.*`、`wifi_console.*`、`common/debug_args.*` | LCD 按行串口、兼容单字符命令、Wi-Fi 命令及恢复出厂确认 |
+| `main/liveview_pipeline.*` | 取景对象 JPEG 边界检查、双槽上下文、解码工作任务和帧统计 |
+| `components/ptpip/` | 可取消 socket 传输、事务期限、数据 / 响应校验、Probe 与事件消费、DeviceInfo 解析 |
+| `components/sony_camera/` | 完整属性描述顺序遍历、标量 / 能力解析及 Sony 控制写入 |
+| `components/board_7b/` | LCD / I²C 初始化、帧同步、JPEG 解码、参数保存与绘制；`ui_fonts` 管理字体缓存 |
+| `common/atom_protocol.*` | 两端共用的 CRC8、编解码与请求接收重同步 |
 
-依赖关系（箭头表示调用）：
-
-```mermaid
-flowchart TB
-    app["app_main"] --> b7["board_7b"]
-    app --> wifi["wifi_ap"]
-    app --> cam["camera_controller"]
-    app --> atom["atom_link"]
-    wifi --> b7
-    cam --> ptp["ptpip"]
-    cam --> sony["sony_camera"]
-    sony --> ptp
-    cam --> pipeline["liveview_pipeline"]
-    pipeline --> b7
-    console["camera_console"] --> cam & b7
-    cam --> b7
-    atom --> b7
-    atom --> cam
-    b7 --> fonts["ui_fonts"]
-```
-
-相机逻辑已拆分，并增量接入完整标量/MF 能力解析、手动对焦和扩展参数显示；新代码已测试并烧录，连接验收见 [实机记录](../records/connection-test-20261001.md)。连接已接入动态 DHCP 发现、GUID/peer 持久化、可取消传输、事务期限及退避重连。Mode 枚举仍沿用搜索算法；完整属性描述模型、显示抽象与显示故障恢复仍未实施。连接流程及实现边界集中见 [相机连接设计](sony-ptpip-design.md#当前实现连接与运行)。
-
-`board_7b` 同时承担硬件驱动、界面绘制和相机状态保存三类职责，这是重构的主要对象。
+`main/focus_input.*` 仍有主机回归，但已不在 LCD 的 `main/CMakeLists.txt` 中；运行时输入由 `gamepad_input` 处理。`camera_model`、`ui_presenter` 和通用 `display` 接口仍为目标设计。`board_7b` 尚未完成硬件、界面与相机领域模型的分离。
 
 ### ATOM 端
 
-| 模块 | 文件 | 职责 |
-| --- | --- | --- |
-| 主循环 | `m5_atom_matrix/main/app_main.c` | 灯阵 RMT 驱动、板载按键、I²C 从机命令处理 |
-| DS4 主机 | `ds4_host.c/.h` | 扫描、连接、认证、保存配对地址；线程安全状态快照 |
-| 报告解析 | `ds4_report.c/.h` | 解析 DS4 HID 输入报告（纯 C，有主机测试） |
-| 事件缓存 | `ds4_events.c/.h` | 128 项按键位图变化环形缓存，按事件 ID 确认（纯 C，有主机测试） |
+| 模块 / 文件（`m5_atom_matrix/main/`） | 当前职责 |
+| --- | --- |
+| `app_main.c` | 板载按键非阻塞去抖（30 ms）、累计次数与 DS4 日志 |
+| `ds4_host.*`、`ds4_report.*` | 扫描 / 连接 / 保存手柄地址、线程安全快照、纯 C HID 报告解析 |
+| `ds4_events.*` | 128 项按键变化缓存，清除本地 L3、去重、事件 ID 确认及溢出 gap |
+| `atom_i2c.*`、`atom_slave_tx.*` | 新版 I²C 从机 ISR 收包、独立解析任务；ESP-IDF 5.5.1 专用软件缓冲 / FIFO 响应替换 |
+| `matrix_status.*`、`matrix_model.*` | 独立 RMT 渲染、纯 C 启动 / 连接 / 故障状态模型、异步 HID 超时与 LED 恢复 |
+
+灯阵由 ATOM 状态任务独占，LCD 不发送 RGB 命令，板载按键不再切换颜色。物理映射和视觉效果仍待实机验收。
 
 ## 3. 启动顺序
 
-LCD 端 `app_main`：
+LCD 的 `app_main` 按以下顺序执行：
 
-1. `nvs_flash_init()`：失败直接复位，不自动擦除。
-2. `board_7b_init(AP_SSID, AP_PASSWORD)`：I²C 总线、IO 扩展器、LCD 电源、RGB 面板、帧缓冲、字体；显示连接页。
-3. 堆完整性检查。
-4. `atom_link_start()`：创建 `atom_link` 任务，复用 `I2C_NUM_0` 总线。
-5. `wifi_ap_start()`：创建热点。
-6. `camera_pair_console_init()`：创建 Mode 请求队列、安装 UART 驱动、创建 `pair_console` 任务。
-7. `camera_jpeg_start()`：创建 `camera_pair` 任务，开始等待相机。
-8. 主循环每 10 秒记录客户端、运行时间和剩余内存。
+1. `nvs_flash_init()`；失败记录错误、保留 NVS，继续使用默认热点配置。
+2. `wifi_ap_load_config()` / `wifi_ap_get_config()`，从 NVS 加载配置。
+3. `board_7b_init()`、`board_7b_set_wifi_info()`，按密码显示开关绘制连接页；堆完整性检查。
+4. `wifi_menu_ui_start()`，先建立 UI 输入队列。
+5. `atom_link_start()`，复用板级 `I2C_NUM_0` 总线。
+6. `wifi_ap_start()`，启动热点及配置工作任务。
+7. `camera_pair_console_init()`，创建单槽 MF 请求队列及行控制台。
+8. `camera_jpeg_start()`，开始等待相机；主循环每 10 秒记录运行时间和内存。
 
-ATOM 端 `app_main`：按键 GPIO → RMT 灯阵（红色）→ I²C 从机 → `ds4_host_init()` → 主循环。
+ATOM：`matrix_status_init()` → 按键 GPIO → `atom_i2c_start()` → 存储启动阶段 → `ds4_host_init()` → `atom_i2c_ready()` → 10 ms 主循环。HID 初始化结果由异步回调提交灯阵模型。LCD 保持 ATOM 先于 Wi-Fi 的启动次序，相关实机问题见 [Wi-Fi 记录](../records/wifi-test-20261002.md)。
 
 ## 4. 任务与核心
 
 ### LCD 端
 
-| 任务 | 核心 | 优先级 | 栈 | 生命周期 | 说明 |
-| --- | --- | --- | --- | --- | --- |
-| `main` | 默认 | 默认 | 默认 | 常驻 | 10 秒周期日志 |
-| `camera_pair` | 0 | 4 | 32KiB，PSRAM | 每次 `j` / `p` 创建，结束后删除 | 持有两个 socket；握手、Sony 初始化、取景循环、属性刷新、Mode 设置 |
-| `jpeg_decode` | 1 | 4 | 32KiB，PSRAM | 每个取景会话创建，排空后删除 | 唯一调用 `board_7b_show_jpeg` 的任务；FreeType 需要 16KiB 栈上工作区 |
-| `atom_link` | 不限 | 4 | 3072 字节 | 常驻 | 在线时约 50 ms 轮询一次 |
-| `pair_console` | 不限 | 3 | 4096 字节 | 常驻 | 读取 UART 单字符命令 |
-| Wi-Fi / lwIP / esp_timer | 系统 | 系统 | 系统 | 常驻 | ESP-IDF 内部任务 |
+| 任务 | 核心 | 优先级 | 栈 | 生命周期 / 职责 |
+| --- | --- | --- | --- | --- |
+| `main` | 默认 | 默认 | 32KiB（默认配置） | 常驻；初始化及周期内存日志 |
+| `camera_pair` | 0 | 4 | 32KiB，PSRAM | `j` / `p` 创建、结束删除；socket 及相机控制唯一所有者 |
+| `jpeg_decode` | 1 | 4 | 32KiB，PSRAM | 每个取景会话创建、排空删除；解码及发布 JPEG |
+| `camera_nvs` | 不限 | 4 | 4096 字节，内部 RAM | 临时身份读取 / 保存；相机任务等待完成 |
+| `atom_link` | 不限 | 4 | 3072 字节 | 常驻；在线轮询周期约 50 ms |
+| `pair_console` | 不限 | 3 | 4096 字节 | 常驻；最多 255 字节行输入，Enter 执行 |
+| `wifi_menu` | 不限 | 2 | 4096 字节 | 常驻；热点菜单输入与完成结果 |
+| `wifi_config` | 不限 | 2 | 4096 字节 | 常驻；NVS / 热点重启、2 秒客户端更新及 10 秒客户端日志 |
 
-两个大栈放在 PSRAM，为 lwIP 和 Wi-Fi 保留内部 RAM。身份加载及配对保存由临时 `camera_nvs` 任务完成，使用 4KiB 内部栈；Flash 写入关闭缓存时不能使用 PSRAM 栈。控制任务等待该操作完成后才继续。
+Wi-Fi、lwIP、esp_timer 等由 ESP-IDF 管理。大栈位于 PSRAM；Flash 写入由内部栈工作任务执行。
 
 ### ATOM 端
 
-| 任务 | 优先级 | 栈 | 说明 |
-| --- | --- | --- | --- |
-| `main` | 默认 | 默认 | 每 10 ms 循环：DS4 日志、按键去抖（阻塞 30 ms）、I²C 从机读写 |
-| `ds4_connect` | 4 | 4096 字节 | 扫描与连接重试 |
-| Bluedroid / HID Host | 系统 | 系统 | 输入回调中写入状态快照和事件缓存 |
+| 任务 | 核心 | 优先级 | 栈 | 职责 |
+| --- | --- | --- | --- | --- |
+| `main` | 默认 | 默认 | 默认 | 每 10 ms 采样按键及输出 DS4 日志，不执行 I²C 收发或灯阵渲染 |
+| `atom_i2c` | 0 | `configMAX_PRIORITIES - 1` | 3072 字节 | 接收队列解析、请求重同步及响应替换 |
+| `matrix_render` | 1 | 2 | 3072 字节 | 125 ms 状态循环，独占 RMT |
+| `ds4_connect` | 不限 | 4 | 4096 字节 | 扫描 / 重连及手柄地址保存 |
+
+Bluedroid / HID Host 回调只提交快照、事件缓存和状态。
 
 ## 5. 队列与同步
 
-| 对象 | 类型 | 生产者 → 消费者 | 说明 |
-| --- | --- | --- | --- |
-| `free_slots` | 队列，深度 2 | `jpeg_decode` → `camera_pair` | 空闲对象槽编号 |
-| `ready` | 队列，深度 2 | `camera_pair` → `jpeg_decode` | 已填满的槽和长度；`slot = -1` 为结束项 |
-| `done` | 二值信号量 | `jpeg_decode` → `camera_pair` | 解码任务排空后通知，之后才能释放流水线 |
-| `mode_requests` | 队列，深度 32 | `atom_link` → `camera_pair` | 曝光 Mode 步进方向 ±1 |
-| `stop_requested`、`busy` | 原子变量 | `pair_console` → `camera_pair` | 停止请求；同一时刻只运行一个相机任务 |
-| `display_mutex` | 互斥量 | 所有显示调用方 | 保护帧缓冲、解码器和字体渲染 |
-| `frame_done` | 计数信号量 | LCD 帧完成中断 → 显示发布 | 发布后等待两次完成通知，超时 1 秒即置 `display_sync_lost` |
-| 属性 `prop_*`、`exposure_mode`、`wifi_rssi` | 原子变量 | `camera_pair` / `wifi_ap` → 绘制 | 叠加层每帧读取 |
-| `camera_model`、`camera_firmware` | 普通字符数组 | `camera_pair` → 绘制 | 只在解码任务启动前写入，见修改清单 |
+| 对象 | 形式 | 所有权 / 作用 |
+| --- | --- | --- |
+| `free_slots` / `ready` | 两个深度 2 的 FreeRTOS 队列 | `camera_pair` 与 `jpeg_decode` 交接槽；结束项 `slot=-1` |
+| `done` | 二值信号量 | 解码任务排空后才允许释放流水线 |
+| `camera_actions` | 纯 C，32 项缓存 + 独立释放屏障 | 输入投递，socket 所有者执行；`controls_mux` 保护、generation 拒绝旧动作 |
+| `mode_steps`、`focus_mode_steps`、`menu_steps[7]` | 原子步数 | 输入任务累加，相机任务消费；最终目标保存在 `setting_control` / `camera_menu` |
+| `focus_requests` | 深度 1 的队列 | MF 请求覆盖旧请求，执行前校验能力、取消代数、generation 与有效期 |
+| 热点配置请求 | 深度 2 队列，8 槽结果记录 | 复制配置、token 查询完成；只淘汰已完成结果 |
+| 热点菜单输入 | 深度 16 队列 | `atom_link` → `wifi_menu`；缺口 / 断开取消草稿 |
+| ATOM 收包 | 深度 8 队列 | 从机 ISR → `atom_i2c` 任务；溢出丢弃不完整请求 |
+| `display_mutex`、`frame_done` | 互斥量、计数信号量 | 显示、字体与帧缓冲互斥；发布后等待两次帧完成，单次等待上限 1 秒 |
+| 运行状态及 UI 元数据 | 原子变量 / 短临界区复制 | 参数、电量、热点文本、菜单状态与连接代数 |
+
+曝光 Mode 不再使用深度 32 的 `mode_requests` 队列。输入任务不操作相机 socket，也不执行 NVS 写入。维护占用阻止新相机请求，等待旧 socket 所有者与解码任务退出；全部重置成功后保留占用直到设备重启。
 
 ## 6. 缓冲区与所有权
 
-| 缓冲 | 位置 | 大小 | 所有者 |
-| --- | --- | --- | --- |
-| 对象槽 ×2 | PSRAM | 各 1MiB | 通过 `free_slots` / `ready` 在两个任务间交接，同一时刻只属于一方 |
-| LCD 帧缓冲 ×2 | PSRAM | 各 1024×600×2 字节 | `board_7b`；前台由面板扫描，后台由解码写入 |
-| DMA bounce buffer ×2 | 内部 RAM | 各 30 行，共约 120KiB | LCD 驱动 |
-| TJpgDec 工作区 | PSRAM | 4KiB | `board_7b`，仅解码任务使用 |
-| `esp_new_jpeg` 解码器 ×2 | 堆 | — | 全尺寸和 768×432 缩放各一个，首次使用时创建 |
-| 字形缓存 | PSRAM | 见字体说明 | `ui_fonts`，只在 `display_mutex` 内访问 |
-| 握手报文 | `camera_pair` 栈 | 512 字节 | — |
+| 缓冲 | 位置 / 大小 | 所有者 |
+| --- | --- | --- |
+| 取景对象槽 ×2 | PSRAM，各 1MiB | 队列交接，单槽同一时刻仅属于生产或解码任务；属性读取仍复用空闲槽 |
+| LCD 帧缓冲 ×2 | PSRAM，各 1024×600×2 字节 | `board_7b`；前台扫描、后台解码绘制 |
+| DMA bounce buffer ×2 | 内部 RAM，各 30 行 | LCD 驱动，合计约 120KiB |
+| TJpgDec 工作区 | PSRAM，4KiB | `board_7b` |
+| `esp_new_jpeg` 解码器 ×2 | 堆 | 全尺寸及 768×432 缩放，首次使用创建 |
+| 字形缓存 | PSRAM | `ui_fonts`，显示锁内访问，见 [字体说明](../../components/board_7b/fonts/README.md) |
 
-一帧的流转：
+每帧先处理事件、释放动作及必要的属性 / 参数事务，再读取 `0x1009` 到空闲槽并交给 CPU1 解码。CPU1 发布帧后归还槽，因此网络接收与显示可以重叠。
 
-```mermaid
-sequenceDiagram
-    participant C as camera_pair (CPU0)
-    participant Q as free_slots / ready
-    participant D as jpeg_decode (CPU1)
-    participant L as LCD
-    C->>Q: 取空闲槽（最多等 100 ms）
-    C->>C: 读事件通道、处理 Mode 请求、必要时刷新 0x9209
-    C->>C: 0x1009 GetObject 写入槽
-    C->>Q: 提交到 ready
-    D->>Q: 取出槽
-    D->>D: 定位 JPEG，解码到后台帧缓冲，绘制叠加层
-    D->>L: 发布帧，等待两次帧完成
-    D->>Q: 归还槽到 free_slots
-```
-
-两个槽使网络接收和解码显示可以重叠：解码当前帧时，下一帧已在读取。
-
-## 7. 相机连接状态机（当前实现）
+## 7. 相机连接状态机
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Discovery: j / 启动
-    Discovery --> Discovery: 没有租约 / 多候选，约 1 s 后重查
-    Discovery --> Handshake: 唯一 TCP 15740 候选；已绑定仅选保存 MAC
+    [*] --> Discovery: 启动 / j
+    Discovery --> Discovery: 无租约 / 多候选，约 1 s 重查
+    Discovery --> Handshake: 唯一候选；已绑定仅选保存 MAC
     Discovery --> Retry: 目标服务不可达
-    Handshake --> Session: 两通道 ACK；首次 120 s，重连 10 s
-    Handshake --> PairRequired: InitFail / 相机 GUID 不匹配
-    Session --> SonyInit: OpenSession 0x2001
-    SonyInit --> LiveView: 完整初始化并确认绑定
-    LiveView --> LiveView: 完整 0x200F 拒绝，100 ms 后再取帧
-    LiveView --> Retry: 连续拒绝超过 50 次 / 网络 / 协议 / 解码失败
-    Handshake --> Retry: 网络失败 / 超时
+    Handshake --> Session: 双通道 ACK；首次 120 s，重连 10 s
+    Handshake --> PairRequired: InitFail / GUID 不匹配
+    Session --> SonyInit: OpenSession OK
+    SonyInit --> LiveView: 初始化并确认绑定
+    LiveView --> LiveView: 完整 0x200F，100 ms 后再取帧
+    LiveView --> Retry: 连续拒绝超过 50 次 / 网络 / 协议 / 解码错误
+    Handshake --> Retry: 超时 / 网络错误
     Retry --> Discovery: 1、2、4、8、16、30 s 退避
-    PairRequired --> [*]: 用户确认相机后用 j/p 重试
+    PairRequired --> [*]: 确认相机后用 j/p 重试
     Discovery --> Closing: s
     Handshake --> Closing: s
     Session --> Closing: s
     SonyInit --> Closing: s
     LiveView --> Closing: s
     Retry --> Closing: s
-    Closing --> [*]: 取消网络等待，排空解码并关闭连接
+    Closing --> [*]: 取消网络等待、排空解码、关闭连接
 ```
 
-网络 select 每最多 100 ms 检查停止，事务使用绝对期限。部分数据阶段中断后直接关闭连接，不继续发送控制命令。1 秒整机停止、实际 DHCP 和断网回归仍待实机验证；连接细节见 [相机连接设计](sony-ptpip-design.md#当前实现连接与运行)。
+select 每最多 100 ms 检查停止，事务使用绝对期限；中断数据阶段不再发送控制事务。`p` 共用初始化路径并验证同身份重连，完成后退出，不进入连续取景。停止时保留最后画面；一般故障返回连接页。连接实测范围见 [2026-10-01 记录](../records/connection-test-20261001.md)，完整故障注入与停止时延指标仍需验收。
 
-## 8. 显示状态
+## 8. 显示与控制
 
-| 状态 | 进入条件 | 绘制内容 |
-| --- | --- | --- |
-| 连接页 | 启动；`board_7b_show_connection()` | 标题、SSID、密码、ATOM / DS4 状态、连接阶段文字 |
-| 预览 | 第一帧解码成功 | 1024×576 取景 + 右上角 6 行状态框 |
-| 设置 | 预览中按 Start 或串口 `S` | 768×432 缩略图 + 右侧 15 行面板 + 下方 9 项扩展参数 |
-| 失效 | 帧同步超时 | 不再更新，需要重启 |
+| 画面 | 当前内容 |
+| --- | --- |
+| 连接页 | 标题、SSID、按开关处理的密码、动态 IP、ATOM / DS4 / 云台状态及连接阶段；云台当前为禁用 / 未连接 |
+| LIVE | 1024×576 取景、右上角六行状态、左上角电量 / 录像计时及底部控制状态 |
+| SETTINGS | 768×432 缩略图、右侧 16 行（含七项参数与 WI-FI 入口）、下方九项扩展参数、目标与终态 |
+| 热点菜单 | SETTINGS 右栏显示 SSID、密码、随机密码、信道、显示开关、应用、两级重置及返回 |
+| 显示失效 | 帧同步超时后停止更新，自动恢复尚未实现 |
+
+Start 或串口 `S` 切换设置偏好，相机离线时也能导航热点页。Y 切下一曝光 Mode，X 切下一 Focus，L1 / R1 为 Tele / Wide；确认非电动变焦镜头且 MF 才启用近 / 远对焦替代，当前镜头类型 UNKNOWN，替代分支不启用。LT / RT 驱动 S1、录像目标及 S2；相机动作和菜单视觉仍待验收，见 [手柄手册](../user-guide/controller.md)。
 
 ## 9. 协议版本
 
-| 链路 | 当前版本 | 说明 |
+| 链路 | 当前版本 / 帧长 | 说明 |
 | --- | --- | --- |
-| LCD ↔ ATOM I²C | 版本 1，8 字节命令，无校验 | 见 [ATOM 子项目说明](../../m5_atom_matrix/README.md#lcd-主从通信)；版本 2 设计见 [I²C 通信协议](i2c-protocol-design.md) |
+| LCD ↔ ATOM | v2；请求 9 字节，HELLO 成功响应 19 字节，POLL 35 字节，错误响应 7 字节 | CRC-8/SMBUS、boot_id、ack_id、gap；不兼容 v1，两端同时升级 |
 | PTP/IP | `0x00010000` | 设备名 `ESP32-Camera-Remote` |
-| Sony 扩展协议 | 300（3.00） | `0x9202(300)` |
+| Sony 扩展 | 300（3.00） | `0x9202(300)` |
 
-两端 I²C 协议必须同时升级；只修改 LCD 界面或相机控制时只需烧录 LCD。
+ATOM 在线 POLL 周期 50 ms，写后等待 15 ms；失败保持 seq / ack 重试，连续三次失败才离线；离线每秒探测，版本不匹配每 5 秒重试。重启重新 HELLO，重连先丢弃旧缓存，gap 只同步位图并取消旧操作。完整协议见 [I²C v2 设计](i2c-protocol-design.md)，15 ms 响应上限与长期稳定性仍需实测。
 
 ## 10. 持久化
 
-| 设备 | NVS 命名空间 / 键 | 内容 |
+| 设备 | 命名空间 / 键 | 内容 |
 | --- | --- | --- |
-| LCD | `sony_remote` / `guid` | 16 字节 PTP/IP 设备 GUID，首次启动随机生成 |
-| LCD | `sony_remote` / `peer` | 完成 Sony 初始化后保存的相机 MAC[6]+GUID[16]；仅持有 guid 时不视为已绑定 |
-| LCD | Wi-Fi | 不保存（`WIFI_STORAGE_RAM`） |
-| ATOM | `ds4_host` | 上次成功连接的 DS4 地址；绑定信息由蓝牙栈保存 |
+| LCD | `sony_remote/guid` | 16 字节 PTP/IP 身份，首次生成 |
+| LCD | `sony_remote/peer` | 成功 Sony 初始化后保存的相机 MAC[6] + GUID[16] |
+| LCD | `wifi_ap/cfg` | 100 字节应用记录：SSID、密码、信道、密码显示开关；Wi-Fi 驱动仍用 RAM |
+| ATOM | `ds4_host/peer` | 上次手柄地址；蓝牙绑定由蓝牙栈保存 |
 
-LCD 分区：`nvs` 0x9000（24KiB）、`phy_init` 0xF000、`factory` 0x10000（12MiB）、`data` SPIFFS 0xC10000（0x3F0000，当前未使用）。没有 OTA 分区。
+默认热点为 `easycamctrl` / `00000000` / 信道 6 / 显示密码；保存配置优先。只重置热点会删除 `wifi_ap/cfg`，相机身份保留；全部重置另清除 `sony_remote` 并重启 LCD，不清除 ATOM 的手柄绑定。相关操作见 [串口手册](../user-guide/serial.md)。
+
+LCD 分区为 `nvs` 0x9000（24KiB）、`phy_init` 0xF000、`factory` 0x10000（12MiB）、`data` SPIFFS 0xC10000（0x3F0000，当前未使用），没有 OTA 分区。NVS 初始化失败保留内容并降级运行，NVS 分区修复仍未实现。

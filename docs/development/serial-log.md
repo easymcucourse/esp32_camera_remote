@@ -29,7 +29,7 @@ python -m pip install -r tools/requirements.txt
 
 ## LCD 串口命令
 
-LCD 的 `pair_console` 任务读取单个字符：
+LCD 的 `pair_console` 按行读取，Enter 执行，单字符命令仍兼容；Wi-Fi 配置与两级恢复出厂命令见 [串口手册](../user-guide/serial.md)。
 
 | 命令 | 功能 |
 | --- | --- |
@@ -95,15 +95,15 @@ python tools/test_camera_connection.py --port COM8 --connect-wait 120 --steady 3
 | `SESSION VERIFIED` | `camera_pair` | OpenSession 成功 |
 | `LIVEVIEW RUNNING` | `camera_pair` | 开始连续取景 |
 | `LIVEVIEW frames=… fps=…` | `camera_pair` | 约每 5 秒一次的帧率、读取和显示耗时、解码任务栈余量 |
-| `Mode readback:` | `camera_pair` | 曝光 Mode 设置后的回读值 |
+| `Setting 0x… target=…` / `Menu 0x…` | `camera_pair` | Mode 目标或菜单参数写入，成功响应仍需属性回读确认 |
 | `Camera disconnected` | `camera_pair` | 会话中断，按 1–30 秒退避重试 |
 | `CAMERA DISCOVERED` / `PAIRING SAVED` | 相机模块 | DHCP 目标已找到 / Sony 初始化成功后已保存绑定 |
 | `LCD frame synchronization timed out` | `board_7b` | 显示失效，需要重启 |
-| `ATOM online` / `ATOM response invalid` | `atom_link` | I²C 链路状态 |
-| `DS4 connected` / `DS4 disconnected` | `atom_link` | 手柄状态（LCD 视角） |
+| `ATOM v2 online` / `Transaction failed` / `ATOM link lost` | `atom_link` | v2 握手、重试及离线状态 |
+| `DS4 … pressed/released` / `Controller buttons=` | `atom_link` | 缓存按键变化及实时输入快照，LCD 视角 |
 | `uptime=… free_internal=… free_psram=…` | `remote` | 每 10 秒的内存余量 |
 | `DualShock 4 connected; input ready` | ATOM `ds4_host` | 手柄有效输入已到达 |
-| `DS4 event cache overflow` | ATOM | 事件缓存溢出 |
+| `Event overflow: dropped=` | ATOM `atom_i2c` | 事件缓存溢出；LCD 按 gap 取消旧输入 |
 
 ## 注意事项
 
