@@ -1,0 +1,86 @@
+# Development input audit; camera must have no session. No credentials printed.
+# Run uart_script.py with --reset lcd so the initial menu cursor is zero.
+wait 7000
+status
+expect "session=0"
+expect "settings=0"
+atom sim on
+wait 250
+pad connect
+wait 200
+tap select 1000
+status
+expect "maint=0"
+tap select 2200
+expect "on=1 result=ESP_OK" 4
+maint probe
+expect "passed=14 transport=loopback"
+tap select 2200
+expect "on=1 result=ESP_OK" 4
+tap select 2200
+expect "on=0 result=ESP_OK" 4
+tap start 100
+wait 200
+tap down 100
+tap down 100
+tap down 100
+tap down 100
+tap down 100
+tap down 100
+tap down 100
+tap down 100
+status
+expect "selected=8"
+tap a 100
+expect "confirm=1" 3
+tap right 650
+status
+expect "maint=0"
+tap b 100
+tap a 100
+expect "confirm=1" 3
+wait 3100
+tap a 100
+expect "confirm=1" 3
+wait 250
+pad overflow
+wait 150
+tap a 100
+wait 200
+status
+expect "maint=0"
+tap a 100
+expect "confirm=1" 3
+tap a 100
+expect "on=1 result=ESP_OK" 4
+wait 250
+status
+expect "settings=0"
+maint probe
+expect "passed=14 transport=loopback"
+tap select 2200
+expect "on=1 result=ESP_OK" 4
+tap start 100
+wait 200
+tap a 100
+expect "on=0 result=ESP_OK" 4
+wait 250
+status
+expect "settings=1"
+tap a 100
+expect "confirm=1" 3
+tap start 100
+wait 150
+tap start 100
+wait 150
+tap a 100
+expect "confirm=1" 3
+tap b 100
+tap start 100
+wait 150
+atom sim off
+wait 200
+status
+expect "sim=0"
+expect "settings=0"
+expect "maint=0"

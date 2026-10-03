@@ -52,18 +52,32 @@ static bool write_value(int fd, uint32_t transaction, uint16_t opcode,
 static bool sony_write_value(int fd, uint32_t transaction, uint16_t opcode,
                              uint16_t property, const uint8_t *data, size_t size, bool *accepted)
 {
-    if (accepted) *accepted = false;
+    if (!accepted) return false;
+    *accepted = false;
     if (!ptpip_transaction_begin(fd)) return false;
     bool result = write_value(fd, transaction, opcode, property, data, size, accepted);
     ptpip_transaction_end(); return result;
 }
 
-bool sony_set_exposure_mode(int fd, uint32_t transaction, uint32_t value, bool *accepted)
+bool sony_set_scalar(int fd, uint32_t transaction, uint16_t property,
+                     uint16_t type, uint32_t value, bool *accepted)
 {
+    if (!accepted) return false;
+    *accepted = false;
+    if (type < 1 || type > 6) return false;
+    unsigned width = 1u << ((type - 1) / 2);
+    /* Signed values use their width-limited wire bit pattern. */
+    if ((width == 1 && value > UINT8_MAX) ||
+        (width == 2 && value > UINT16_MAX)) return false;
     uint8_t data[4];
     put32(data, value);
     return sony_write_value(fd, transaction, SONY_OC_SET_CONTROL_DEVICE_A,
-                            SONY_DPC_EXPOSURE_PROGRAM, data, sizeof(data), accepted);
+                            property, data, width, accepted);
+}
+
+bool sony_set_exposure_mode(int fd, uint32_t transaction, uint32_t value, bool *accepted)
+{
+    return sony_set_scalar(fd, transaction, SONY_DPC_EXPOSURE_PROGRAM, 6, value, accepted);
 }
 
 bool sony_manual_focus_step(int fd, uint32_t transaction, int direction, bool *accepted)
@@ -77,3 +91,37 @@ bool sony_manual_focus_step(int fd, uint32_t transaction, int direction, bool *a
                             SONY_DPC_MANUAL_FOCUS_ADJUST, data, sizeof(data), accepted);
 }
 
+static bool control_button(int fd, uint32_t transaction, uint16_t property, bool pressed, bool *accepted)
+{
+    uint8_t data[2] = {pressed ? 2 : 1, 0};
+    return sony_write_value(fd, transaction, SONY_OC_SET_CONTROL_DEVICE_B,
+                            property, data, sizeof(data), accepted);
+}
+bool sony_shutter_button(int fd, uint32_t transaction, bool full, bool pressed, bool *accepted)
+{
+    return control_button(fd, transaction, full ? SONY_DPC_SHUTTER_RELEASE :
+                           SONY_DPC_SHUTTER_HALF_RELEASE, pressed, accepted);
+}
+bool sony_movie_record(int fd, uint32_t transaction, bool recording, bool *accepted)
+{
+    return control_button(fd, transaction, SONY_DPC_MOVIE_RECORD, recording, accepted);
+}
+bool sony_zoom(int fd, uint32_t transaction, int direction, bool *accepted)
+{
+    if (!accepted) return false;
+    *accepted = false;
+    if (direction < -1 || direction > 1) return false;
+    uint8_t data = (uint8_t)(int8_t)direction;
+    return sony_write_value(fd, transaction, SONY_OC_SET_CONTROL_DEVICE_B,
+                            SONY_DPC_ZOOM_OPERATION, &data, sizeof(data), accepted);
+}
+bool sony_setting_step(int fd, uint32_t transaction, uint16_t property, int direction, bool *accepted)
+{
+    if (!accepted) return false;
+    *accepted = false;
+    if ((property != SONY_DPC_SHUTTER_SPEED && property != SONY_DPC_F_NUMBER) ||
+        (direction != -1 && direction != 1)) return false;
+    uint8_t data = (uint8_t)(int8_t)direction;
+    return sony_write_value(fd, transaction, SONY_OC_SET_CONTROL_DEVICE_B,
+                            property, &data, sizeof(data), accepted);
+}

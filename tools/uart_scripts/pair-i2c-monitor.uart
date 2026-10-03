@@ -1,0 +1,29 @@
+@lcd i2c stats reset
+@atom i2c stats reset
+i2c log changes
+@lcd i2c log changes
+expect "[dbg] i2c" 2
+@atom pad sim on
+pad connect
+wait 200
+tap start 100
+@lcd status
+expect "sim=1"
+i2c stats
+expect "failed=0"
+@atom i2c stats
+expect "failed=0"
+i2c log on
+@lcd i2c log on
+wait 500
+status
+i2c stats
+expect "log_dropped=0"
+@atom i2c log off
+tap start 100
+pad sim off
+@lcd i2c log off
+wait 150
+status
+expect "sim=0"
+! i2c log invalid

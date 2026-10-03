@@ -1,0 +1,61 @@
+name: Tests and firmware
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check documentation links
+        run: python3 tools/check_doc_links.py
+      - name: Configure host tests with sanitizers
+        run: >-
+          cmake -S tests/host -B build/host-ci -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - run: cmake --build build/host-ci --parallel 4
+      - name: Run host tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build/host-ci --output-on-failure
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [lcd, atom]
+        flavour: [debug, release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware and check release symbols
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: ${{ matrix.board == 'lcd' && 'esp32s3' || 'esp32' }}
+          path: .
+          command: python tools/ci_build.py ${{ matrix.board }} ${{ matrix.flavour }}
+      - name: Save firmware and size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}-${{ matrix.flavour }}
+          if-no-files-found: error
+          path: |
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/*.bin
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/*.elf
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/*.map
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/size.json
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/flash_args
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/sdkconfig
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/bootloader/bootloader.bin
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/partition_table/partition-table.bin

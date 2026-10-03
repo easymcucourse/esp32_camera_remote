@@ -1,0 +1,30 @@
+# Preserves NVS; tests terminal maintenance shutdown before two fault reboots and a web reboot.
+status
+expect "session=0"
+maint on stop
+expect "on=1"
+display fault persistent
+expect "Display restart: camera_drained=1; NVS preserved; maintenance_closed=1" 12
+expect "READY: LCD connection screen" 15
+status
+expect "maint=0"
+maint on
+expect "on=1"
+display fault persistent
+expect "Display restart: camera_drained=1; NVS preserved; maintenance_closed=1" 12
+expect "READY: LCD connection screen" 15
+status
+expect "maint=0"
+maint on stop
+expect "on=1"
+maint probe reboot
+expect "passed=21 transport=loopback"
+expect "Web restart: camera_drained=1; NVS preserved; maintenance_closed=1" 12
+expect "READY: LCD connection screen" 15
+status
+expect "maint=0"
+expect "settings=0"
+expect "sim=0"
+wifi show
+ui info
+expect "info=full"

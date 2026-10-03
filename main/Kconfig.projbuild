@@ -1,0 +1,22 @@
+menu "Camera station"
+config APP_WIFI_COUNTRY
+    string "Wi-Fi country code"
+    default "JP"
+    help
+        Two-letter regulatory country code. JP allows channels 1-13.
+        The runtime validates channels against the driver's country range.
+endmenu
+menu "Development console"
+config REMOTE_DBG_SIM
+    bool "Enable RAM-only local ATOM and gamepad simulation"
+    default y
+    help
+        Disable for production. Local simulation bypasses physical I2C but uses
+        the same protocol client and input safety handling. Clears on reboot.
+config APP_DEBUG_FAULT_INJECTION
+    bool "Enable RAM-only fault injection commands"
+    default y
+    help
+        Disable for production. A persistent display fault intentionally tests
+        controlled soft restart. Injected state clears on reboot.
+endmenu

@@ -1,4 +1,6 @@
 #include "ds4_host.h"
+#include "atom_protocol.h"
+#include "matrix_status.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_bt.h"
@@ -16,6 +18,9 @@
 static const char *TAG = "ds4_host";
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static ds4_state_t state;
+static ds4_state_t real_state;
+static bool sim_active;
+static uint8_t input_generation;
 static ds4_events_t events;
 static bool ready, scanning, connecting, active, approved, have_saved;
 static bool have_candidate, save_pending;
@@ -25,6 +30,49 @@ static TickType_t opened_at;
 static nvs_handle_t storage;
 static uint32_t input_reports, rejected_reports;
 static TickType_t last_input_log;
+
+/* Both sources pass through exactly the same publication and event rules. */
+static void apply_locked(bool simulated, const ds4_state_t *next)
+{
+    if (simulated != sim_active) return;
+    ds4_state_t clean = *next;
+    if (!clean.connected) clean = (ds4_state_t){.battery=255};
+    clean.buttons &= (1u<<18)-1;
+    if (state.connected!=clean.connected) ++input_generation;
+    if (state.buttons != clean.buttons) ds4_events_push(&events, clean.buttons);
+    state = clean;
+}
+bool ds4_host_sim_active(void)
+{ portENTER_CRITICAL(&lock); bool value=sim_active; portEXIT_CRITICAL(&lock); return value; }
+void ds4_host_set_sim(bool enabled)
+{
+#if CONFIG_REMOTE_DBG_SIM
+    portENTER_CRITICAL(&lock);
+    /* Retire queued presses. The wire SIM flag makes LCD release the old source;
+     * don't mark a gap on the first new press after the neutral connection. */
+    events.head=events.count=0; events.last_buttons=0; events.gap_pending=false;
+    ++input_generation; sim_active=enabled; state=(ds4_state_t){.battery=255};
+    portEXIT_CRITICAL(&lock);
+#else
+    (void)enabled;
+#endif
+}
+void ds4_host_apply_sim(const ds4_state_t *next)
+{
+#if CONFIG_REMOTE_DBG_SIM
+    portENTER_CRITICAL(&lock); apply_locked(true,next); portEXIT_CRITICAL(&lock);
+#else
+    (void)next;
+#endif
+}
+void ds4_host_sim_overflow(void)
+{
+#if CONFIG_REMOTE_DBG_SIM
+    portENTER_CRITICAL(&lock);
+    if (sim_active) { ++events.dropped; events.gap_pending=true; }
+    portEXIT_CRITICAL(&lock);
+#endif
+}
 
 static const char *connection_name(esp_hidh_connection_state_t value)
 {
@@ -55,6 +103,38 @@ bool ds4_host_read_event(uint32_t ack_id, ds4_event_t *event, uint32_t *dropped)
 {
     portENTER_CRITICAL(&lock);
     bool available = ds4_events_read(&events, ack_id, event);
+    *dropped = events.dropped;
+    portEXIT_CRITICAL(&lock);
+    return available;
+}
+
+static uint8_t link_state_locked(void)
+{
+    if (sim_active) return state.connected ? 3 : 0;
+    return !ready ? 0 : active && approved && state.connected ? 3 :
+        connecting || active ? 2 : 1;
+}
+void ds4_host_status(uint8_t *link_state, uint32_t *dropped)
+{
+    portENTER_CRITICAL(&lock);
+    *link_state = link_state_locked(); *dropped = events.dropped;
+    portEXIT_CRITICAL(&lock);
+}
+void ds4_host_debug_status(ds4_state_t *snapshot, uint8_t *link, unsigned *queued, uint32_t *dropped)
+{
+    portENTER_CRITICAL(&lock);
+    *snapshot = state; *link = link_state_locked(); *queued = events.count; *dropped = events.dropped;
+    portEXIT_CRITICAL(&lock);
+}
+bool ds4_host_poll(uint32_t ack_id, ds4_state_t *snapshot, uint8_t *link_state,
+                   ds4_event_t *event, uint8_t *remaining, uint32_t *dropped, uint8_t *source_tag)
+{
+    portENTER_CRITICAL(&lock);
+    *snapshot = state;
+    *link_state = link_state_locked();
+    *source_tag = (uint8_t)(input_generation<<1) | (sim_active?ATOM_DEBUG_SIM:0);
+    bool available = ds4_events_read(&events, ack_id, event);
+    *remaining = available ? (uint8_t)(events.count - 1) : 0;
     *dropped = events.dropped;
     portEXIT_CRITICAL(&lock);
     return available;
@@ -140,6 +220,7 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
         portENTER_CRITICAL(&lock);
         ready = param->init.status == ESP_HIDH_OK;
         portEXIT_CRITICAL(&lock);
+        matrix_status_hid_result(param->init.status == ESP_HIDH_OK);
         ESP_LOGI(TAG, "HID host init status=%d; hold SHARE + PS to pair", param->init.status);
     } else if (event == ESP_HIDH_OPEN_EVT) {
         ESP_LOGI(TAG, "HID open " ESP_BD_ADDR_STR " status=%d phase=%s handle=%u outgoing=%d",
@@ -169,7 +250,8 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
         active = param->open.status == ESP_HIDH_OK &&
                  param->open.conn_status == ESP_HIDH_CONN_STATE_CONNECTED;
         approved = false;
-        memset(&state, 0, sizeof(state));
+        memset(&real_state, 0, sizeof(real_state));
+        apply_locked(false,&real_state);
         if (active) {
             memcpy(target, param->open.bd_addr, 6);
             active_handle = param->open.handle;
@@ -205,13 +287,13 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
                       ds4_parse_report(param->data_ind.data, param->data_ind.len, &next);
         portENTER_CRITICAL(&lock);
         bool current = active && approved && param->data_ind.handle == active_handle;
-        bool first = current && parsed && !state.connected;
+        bool first = current && parsed && !real_state.connected;
         ++input_reports;
         if (!parsed || !current) ++rejected_reports;
         uint32_t count = input_reports, rejected = rejected_reports;
         if (current && parsed) {
-            if (state.buttons != next.buttons) ds4_events_push(&events, next.buttons);
-            state = next;
+            real_state = next;
+            apply_locked(false,&next);
             if (first) save_pending = true;
         }
         portEXIT_CRITICAL(&lock);
@@ -242,8 +324,8 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
         if (current) {
             active = approved = connecting = false;
             save_pending = false;
-            if (state.buttons) ds4_events_push(&events, 0);
-            memset(&state, 0, sizeof(state));
+            memset(&real_state, 0, sizeof(real_state));
+            apply_locked(false,&real_state);
         }
         portEXIT_CRITICAL(&lock);
         if (current) ESP_LOGI(TAG, "DualShock 4 disconnected; auto reconnect enabled");
@@ -262,7 +344,7 @@ static void connection_task(void *arg)
         portENTER_CRITICAL(&lock);
         bool is_ready = ready, is_active = active, is_connecting = connecting;
         bool is_scanning = scanning, found = have_candidate, known = have_saved;
-        bool input_ready = state.connected;
+        bool input_ready = real_state.connected;
         TickType_t open_time = opened_at;
         bool persist = save_pending;
         if (persist) {
@@ -349,7 +431,9 @@ esp_err_t ds4_host_init(void)
 {
     // Avoid reusing the previous boot's ACK IDs after an ATOM reset.
     events.next_id = esp_random();
+#if CONFIG_APP_DS4_DEBUG_LOG
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
+#endif
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "erase NVS");
@@ -362,6 +446,7 @@ esp_err_t ds4_host_init(void)
     have_saved = err == ESP_OK && length == sizeof(saved);
     if (have_saved) ESP_LOGI(TAG, "Loaded saved DS4 " ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(saved));
     else ESP_LOGI(TAG, "No saved DS4; NVS read=%s bytes=%u", esp_err_to_name(err), (unsigned)length);
+    matrix_status_boot_stage(MATRIX_BOOT_BLUETOOTH);
     ESP_RETURN_ON_ERROR(esp_bt_controller_mem_release(ESP_BT_MODE_BLE), TAG, "release BLE");
     esp_bt_controller_config_t config = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_bt_controller_init(&config), TAG, "init controller");
@@ -376,6 +461,9 @@ esp_err_t ds4_host_init(void)
     ESP_RETURN_ON_ERROR(esp_bt_gap_set_device_name("M5ATOM DS4 Host"), TAG, "set name");
     ESP_RETURN_ON_ERROR(esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE), TAG, "set mode");
     ESP_RETURN_ON_ERROR(esp_bt_hid_host_register_callback(hid_event), TAG, "register HID");
+    matrix_status_boot_stage(MATRIX_BOOT_HID_HOST);
     ESP_RETURN_ON_ERROR(esp_bt_hid_host_init(), TAG, "init HID host");
-    return xTaskCreate(connection_task, "ds4_connect", 4096, NULL, 4, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+    if (xTaskCreate(connection_task, "ds4_connect", 4096, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    matrix_status_host_task_started();
+    return ESP_OK;
 }

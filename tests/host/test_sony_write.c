@@ -64,6 +64,57 @@ int main(void)
     assert(used == 70 && get16(sent + 12) == SONY_OC_SET_CONTROL_DEVICE_A);
     assert(get32(sent + 18) == SONY_DPC_EXPOSURE_PROGRAM && get32(sent + 34) == 4);
     assert(get32(sent + 42) == 16 && get32(sent + 54) == 0x10002);
+    used = 0;
+    assert(sony_set_scalar(0, 42, SONY_DPC_FOCUS_MODE, 4, 1, &accepted) && accepted);
+    assert(used == 68 && get32(sent + 34) == 2 && get16(sent + 54) == 1);
+    used = 0;
+    assert(sony_set_scalar(0, 42, SONY_DPC_ZOOM_ENABLE_STATUS, 2, 1, &accepted) && accepted);
+    assert(used == 67 && get32(sent + 34) == 1 && sent[54] == 1);
+    used = 0;
+    assert(sony_set_scalar(0, 42, SONY_DPC_EXPOSURE_BIAS, 3, 0xfff0, &accepted) && accepted);
+    assert(get16(sent + 54) == 0xfff0);
+    used = 0;
+    assert(!sony_set_scalar(0, 42, SONY_DPC_FOCUS_MODE, 4, 0x10000, &accepted));
+    assert(!sony_set_scalar(0, 42, SONY_DPC_FOCUS_MODE, 8, 1, &accepted));
+    assert(!sony_set_scalar(0, 42, SONY_DPC_FOCUS_MODE, 4, 1, NULL));
+    assert(!sony_set_exposure_mode(0, 42, 1, NULL) && used == 0 && depth == 0);
+    for (unsigned full = 0; full < 2; ++full) {
+        for (unsigned pressed = 0; pressed < 2; ++pressed) {
+            used = 0;
+            assert(sony_shutter_button(0, 42, full, pressed, &accepted) && accepted);
+            assert(used == 68 && get16(sent + 12) == SONY_OC_SET_CONTROL_DEVICE_B);
+            assert(get32(sent + 18) == (full ? SONY_DPC_SHUTTER_RELEASE : SONY_DPC_SHUTTER_HALF_RELEASE));
+            assert(get32(sent + 34) == 2 && get16(sent + 54) == (pressed ? 2 : 1));
+        }
+    }
+    for (unsigned recording = 0; recording < 2; ++recording) {
+        used = 0;
+        assert(sony_movie_record(0, 42, recording, &accepted) && accepted);
+        assert(used == 68 && get32(sent + 18) == SONY_DPC_MOVIE_RECORD);
+        assert(get16(sent + 54) == (recording ? 2 : 1));
+    }
+    for (int direction = -1; direction <= 1; ++direction) {
+        used = 0;
+        assert(sony_zoom(0, 42, direction, &accepted) && accepted);
+        assert(used == 67 && get32(sent + 18) == SONY_DPC_ZOOM_OPERATION);
+        assert(get32(sent + 34) == 1 && sent[54] == (uint8_t)(int8_t)direction);
+    }
+    used = 0;
+    assert(!sony_zoom(0, 42, 2, &accepted) && !accepted && !used);
+    assert(!sony_shutter_button(0, 42, true, true, NULL));
+    for (unsigned property = 0; property < 2; ++property) {
+        for (int direction = -1; direction <= 1; direction += 2) {
+            used = 0;
+            uint16_t code = property ? SONY_DPC_F_NUMBER : SONY_DPC_SHUTTER_SPEED;
+            assert(sony_setting_step(0, 42, code, direction, &accepted) && accepted);
+            assert(used == 67 && get16(sent + 12) == SONY_OC_SET_CONTROL_DEVICE_B);
+            assert(get32(sent + 18) == code && get32(sent + 34) == 1);
+            assert(sent[54] == (uint8_t)(int8_t)direction);
+        }
+    }
+    used = 0;
+    assert(!sony_setting_step(0, 42, SONY_DPC_ISO, 1, &accepted) && !accepted && !used);
+    assert(!sony_setting_step(0, 42, SONY_DPC_F_NUMBER, 0, &accepted) && !used);
     puts("Sony write wire tests passed");
     return 0;
 }

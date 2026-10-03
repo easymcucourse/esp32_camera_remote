@@ -1,0 +1,19 @@
+# Verify simulation is RAM-only through the established display recovery reboot.
+@lcd status
+expect "session=0"
+atom sim on
+wait 200
+pad connect
+wait 150
+status
+expect "sim=1"
+display fault once
+expect "LCD recovery complete" 8
+display fault persistent
+expect "LCD recovery attempt 3/3" 10
+expect "Display restart: camera_drained=1; NVS preserved" 10
+expect "READY: LCD connection screen" 15
+wait 200
+status
+expect "sim=0"
+expect "display_failed=0"

@@ -1,0 +1,11 @@
+# Uses controlled display-failure reboot, preserving NVS and camera identity.
+@lcd ui info
+expect "info=full"
+ui info hidden
+display fault persistent
+expect "LCD recovery attempt 3/3" 10
+expect "Display restart: camera_drained=1; NVS preserved" 10
+expect "READY: LCD connection screen" 15
+ui info
+expect "info=hidden"
+ui info full

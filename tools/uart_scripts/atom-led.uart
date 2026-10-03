@@ -1,0 +1,32 @@
+@atom led off
+led test
+expect "calibration=1 forced=0x00"
+wait 4250
+status
+expect "led calibration=1 forced=0x00 SIM"
+led test
+expect "calibration=0 forced=0x00"
+led fault overflow on
+expect "forced=0x01"
+led fault i2c on
+expect "forced=0x03"
+led fault bt on
+expect "forced=0x07"
+status
+expect "faults=0x00"
+expect "led calibration=0 forced=0x07 SIM"
+led fault bt off
+expect "forced=0x03"
+led fault i2c off
+expect "forced=0x01"
+led fault overflow off
+expect "forced=0x00"
+!atom led fault invalid on
+!atom led fault bt yes
+!atom led test extra
+led test
+led fault bt on
+led off
+expect "calibration=0 forced=0x00"
+status
+expect "led calibration=0 forced=0x00"

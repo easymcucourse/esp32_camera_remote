@@ -1,0 +1,64 @@
+"""Build either firmware with fresh, portable CI defaults in an exported IDF shell."""
+import argparse
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('board', choices=('lcd', 'atom'))
+    parser.add_argument('flavour', choices=('debug', 'release'))
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    project = root if args.board == 'lcd' else root / 'm5_atom_matrix'
+    build = root / 'build' / f'ci-{args.board}-{args.flavour}'
+    idf = os.environ.get('IDF_PATH')
+    if not idf or not (Path(idf) / 'tools/idf.py').is_file():
+        parser.error('export ESP-IDF first (IDF_PATH must point to its checkout)')
+    target = 'esp32s3' if args.board == 'lcd' else 'esp32'
+    default_files = [project / 'sdkconfig.defaults', root / 'tools/ci' / f'{args.flavour}.defaults']
+    if args.board == 'lcd':
+        default_files.append(root / 'tools/ci' / f'lcd-{args.flavour}.defaults')
+    defaults = ';'.join(str(p) for p in default_files)
+    subprocess.run([sys.executable, str(Path(idf) / 'tools/idf.py'), '-B', str(build),
+                    '-D', f'SDKCONFIG={build / "sdkconfig"}', '-D', f'SDKCONFIG_DEFAULTS={defaults}',
+                    '-D', f'IDF_TARGET={target}', 'build'], cwd=project, check=True)
+    # Existing build directories retain sdkconfig. Reject accidental flavour drift.
+    config = set((build / 'sdkconfig').read_text(encoding='utf-8').splitlines())
+    expected_debug = args.flavour == 'debug'
+    options = ['REMOTE_DBG_SIM']
+    if args.board == 'lcd':
+        options.append('APP_DEBUG_FAULT_INJECTION')
+    for option in options:
+        if (f'CONFIG_{option}=y' in config) != expected_debug:
+            raise RuntimeError(f'{option} does not match {args.flavour}; check {build / "sdkconfig"}')
+    name = 'esp32_camera_remote' if args.board == 'lcd' else 'm5_atom_matrix'
+    if args.board == 'lcd':
+        if 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' not in config:
+            raise RuntimeError('LCD OTA rollback is disabled; refresh the build sdkconfig')
+        if (build / f'{name}.bin').stat().st_size > 5 * 1024 * 1024:
+            raise RuntimeError('LCD image exceeds 5 MiB OTA budget')
+    subprocess.run([sys.executable, '-m', 'esp_idf_size', '--format', 'json',
+                    '-o', str(build / 'size.json'), str(build / f'{name}.map')], check=True)
+    if args.flavour == 'release':
+        nm = shutil.which('xtensa-esp-elf-nm')
+        if not nm:
+            parser.error('xtensa-esp-elf-nm not found in exported IDF PATH')
+        elf = build / f'{name}.elf'
+        symbols = subprocess.check_output([nm, '--defined-only', str(elf)], text=True)
+        names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+        forbidden = {'pad_cmd_parse', 'pad_player_tick', 'atom_sim_transact',
+                     'matrix_debug_frame', 'atom_fault_take'}
+        if args.board == 'lcd':
+            forbidden.update({'jpeg_enc_open', 'jpeg_enc_process', 'board_7b_test_jpeg'})
+        present = names & forbidden
+        if present:
+            raise RuntimeError(f'release contains simulator symbols: {sorted(present)}')
+        print('release simulator symbol check passed')
+
+
+if __name__ == '__main__':
+    main()

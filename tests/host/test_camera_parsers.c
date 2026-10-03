@@ -69,16 +69,15 @@ static void test_properties(void)
     assert(mode.values[0] == 1 && mode.values[1] == 2 && mode.values[2] == 3);
     assert(o.count == 2 && o.code[0] == SONY_DPC_EXPOSURE_PROGRAM && o.value[0] == 2);
     assert(o.code[1] == SONY_DPC_F_NUMBER && o.value[1] == 400);
-    // Preserve the old parser's partial-input behavior: current values may be
-    // emitted even when the trailing enum choices are incomplete.
+    // Incomplete snapshots must not publish values or authorize writes.
     o = (observed_t){0};
     sony_parse_properties(data, 25, &mode, observe, &o);
-    assert(mode.count == 0 && !mode.writable && mode.current == 2);
-    assert(o.count == 1 && o.value[0] == 2);
+    assert(mode.count == 0 && !mode.writable && mode.current == 0);
+    assert(o.count == 0);
     put32(data + 4, 1);
     o = (observed_t){0};
     sony_parse_properties(data, size, &mode, observe, &o);
-    assert(mode.count == 0 && !mode.writable && o.count == 0 && mode.current == 2);
+    assert(mode.count == 0 && !mode.writable && o.count == 0 && mode.current == 0);
     for (size_t n = 0; n <= size; ++n) {
         o = (observed_t){0};
         sony_parse_properties(data, n, &mode, observe, &o);

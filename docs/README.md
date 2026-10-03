@@ -88,8 +88,8 @@ docs/
 | 手柄 | [gamepad-request](request/gamepad-request.md) | Start、X/Y、肩键、扳机及菜单已接入；相机动作待验收，镜头类型 UNKNOWN |
 | 云台 | [gimbal-request](request/gimbal-request.md) | [gimbal-design](design/gimbal-design.md) |
 | 灯阵 | [matrix-led-request](request/matrix-led-request.md) | 启动 / 连接 / 异常模型与独立渲染已接入；物理映射及实机视觉待验收 |
-| Wi-Fi 热点 | [wifi-ap-request](request/wifi-ap-request.md) | 配置 / NVS / 串口 / 手柄页及两级重置已接入；全部重置实机与网页入口待完成 |
-| UART 调试 | [uart-debug-request](request/uart-debug-request.md) | LCD 行控制台与 wifi / factory 已接入；ATOM 控制台 / 模拟 / 脚本仍规划 |
+| Wi-Fi 热点 | [wifi-ap-request](request/wifi-ap-request.md) | 配置 / NVS / 串口 / 手柄页及两级重置已接入；网页热点配置已接入；全部重置实机与手机访问待验收 |
+| UART 调试 | [uart-debug-request](request/uart-debug-request.md) | 双端行控制台、状态 / 日志 / 请求号与脚本已接入；手柄模拟、I²C 监视仍规划 |
 | 维护页面 / OTA | [maintenance-request](request/maintenance-request.md) | [maintenance-design](design/maintenance-design.md) |
 | LCD ↔ ATOM 链路 | 见手柄、云台、灯阵需求 | 两端当前为 v2，已构建 / 烧录 / 握手；高频与长期稳定性待验收 |
 | 整体 | [improvement-request](request/improvement-request.md) | [architecture-design](design/architecture-design.md)、[hardware-design](design/hardware-design.md)、[testing](development/testing.md) |
@@ -105,9 +105,9 @@ docs/
 | [手柄控制方案](request/gamepad-request.md) | DS4 按键总表；扳机拍照录像、曝光 Mode、对焦框、变焦、云台等操作规则；Sony 协议验证表 | Start、X/Y、肩键、扳机及菜单已接入；相机动作待验收，镜头类型 UNKNOWN |
 | [BLE 云台控制需求](request/gimbal-request.md) | 云台连接、左摇杆控制、L3 回中、安全停止、本地校准与限位 | 草案；目标为大疆 RS 3 Mini，BLE 协议未确认，未实现 |
 | [Matrix LED 状态显示需求](request/matrix-led-request.md) | ATOM 5×5 灯阵的启动进度、LCD 与无线设备连接灯、运行期异常图案；实机测试与验收标准 | 启动 / 连接 / 异常模型与独立渲染已接入；物理映射及实机视觉待验收 |
-| [Wi-Fi 热点需求](request/wifi-ap-request.md) | 固定默认值（`easycamctrl` / `00000000`）、修改 SSID / 密码 / 信道、NVS 持久化、密码显示开关、开机显示 LCD IP、恢复出厂 | 配置 / NVS / 串口 / 手柄页及两级重置已接入；全部重置实机与网页入口待完成 |
-| [UART 调试需求](request/uart-debug-request.md) | 两端命令行控制台、状态查询、LCD 模拟 ATOM 与手柄、ATOM 模拟手柄与 LCD 主机、I²C 监视与故障注入、脚本回放 | LCD 行控制台与 wifi / factory 已接入；ATOM 控制台 / 模拟 / 脚本仍规划 |
-| [维护页面需求](request/maintenance-request.md) | 维护模式开关与 PIN 登录、设备信息、网页修改 SSID / 密码 / 信道、LCD 固件 OTA 与自动回退 | 草案；未实现，需先调整分区表 |
+| [Wi-Fi 热点需求](request/wifi-ap-request.md) | 固定默认值（`easycamctrl` / `00000000`）、修改 SSID / 密码 / 信道、NVS 持久化、密码显示开关、开机显示 LCD IP、恢复出厂 | 配置 / NVS / 串口 / 手柄页及两级重置已接入；网页热点配置已接入；全部重置实机与手机访问待验收 |
+| [UART 调试需求](request/uart-debug-request.md) | 两端命令行控制台、状态查询、LCD 模拟 ATOM 与手柄、ATOM 模拟手柄与 LCD 主机、I²C 监视与故障注入、脚本回放 | 双端控制台 / 回放、ATOM 手柄模拟实测通过；双端 I²C 监视已接入；ATOM 故障注入已实测；LCD 本地模拟 / 故障及物理心跳暂停恢复已实测 |
+| [维护页面需求](request/maintenance-request.md) | 维护模式开关与 PIN 登录、设备信息、网页修改 SSID / 密码 / 信道、LCD 固件 OTA 与自动回退 | 维护 / 热点 / 重启 / 双分区 OTA 已接入；手机与完整故障验收待完成 |
 | [项目修改清单](request/improvement-request.md) | 审查结果按 P0–P3 列出的待办项和建议实施顺序 | 持续更新，完成后勾选 |
 
 ## design：设计
@@ -127,7 +127,7 @@ docs/
 | [Matrix LED 状态显示设计](design/matrix-led-design.md) | 物理映射、颜色取值、状态模型与状态来源、渲染时序、模块接口、Bluetooth 双模限制 | 纯 C matrix_model 与 matrix_status 已接入；硬件效果待验收 |
 | [Wi-Fi 热点设计](design/wifi-ap-design.md) | NVS 记录格式、固定默认值与随机密码生成、校验与国家码、`wifi_ap` 任务与生效流程、串口命令与手柄热点页、连接页 IP 显示、按 MAC 取相机 RSSI、两级恢复出厂 | 当前配置 API / NVS / 菜单 / 两级重置已接入，剩余目标明确标注 |
 | [UART 调试控制台设计](design/uart-debug-design.md) | 两端共用的行输入控制台与输出格式、单字符命令兼容、手柄动作解析与定时执行、LCD 模拟 ATOM 传输层、ATOM 模拟手柄与从机故障注入、I²C 监视、`uart_script.py` 脚本格式 | LCD 行输入与 wifi / factory 部分实现；完整框架和 ATOM 端仍规划 |
-| [维护页面设计](design/maintenance-design.md) | OTA 分区表、维护模式状态机、PIN 与令牌登录、HTTP 接口、网页热点设置、OTA 镜像检查与上传流程、启动自检与回退 | 草案；未实现 |
+| [维护页面设计](design/maintenance-design.md) | OTA 分区表、维护模式状态机、PIN 与令牌登录、HTTP 接口、网页热点设置、OTA 镜像检查与上传流程、启动自检与回退 | 维护基础、热点和双分区 OTA / 回退已接入；验收边界见实施状态 |
 
 ## user-guide：使用手册
 
@@ -149,8 +149,8 @@ docs/
 | --- | --- | --- |
 | [编译与烧录](development/build-and-flash.md) | 两个工程的编译烧录、`idf.ps1` 参数、哪些改动需要烧录哪一端、主机测试、字体工具 | 与当前脚本一致 |
 | [串口日志](development/serial-log.md) | `serial_log.py` 参数和示例、LCD 串口命令、日志关键字含义 | 与当前脚本一致 |
-| [实施与验收状态](development/implementation-status.md) | 当前源码证据、剩余目标、实机边界与代码文档核对 | 2026-10-03 核对；28 项 CTest 通过 |
-| [测试与持续集成设计](development/testing.md) | 测试分层、主机测试约定与计划、故障注入、30 分钟稳定性指标、CI 作业 | 草案；CI 未建立 |
+| [实施与验收状态](development/implementation-status.md) | 当前源码证据、剩余目标、实机边界与代码文档核对 | 2026-10-03 继续实施；48 项 CTest 通过 |
+| [测试与持续集成设计](development/testing.md) | 测试分层、主机测试约定与计划、故障注入、30 分钟稳定性指标、CI 作业 | 本机测试通过，CI 已配置；远端 / 稳定性待验收 |
 
 ## tools：工具
 

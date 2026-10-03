@@ -34,13 +34,22 @@ int main(int argc, char **argv)
     data[16] = 0x0a; data[17] = 0x50; data[18] = 4;
     assert(sony_parse_focus_caps(data, 47, &caps));
     assert(!caps.focus_known && !caps.zoom_known);
+    uint8_t movie[32] = {0}; put32(movie, 1);
+    movie[8] = 0x1d; movie[9] = 0xd2; movie[10] = 4;
+    assert(sony_parse_focus_caps(movie, 19, &caps) && caps.recording_known && !caps.recording);
+    movie[16] = 1;
+    assert(sony_parse_focus_caps(movie, 19, &caps) && caps.recording_known && caps.recording);
+    movie[16] = 2;
+    assert(sony_parse_focus_caps(movie, 19, &caps) && !caps.recording_known);
+    for (size_t truncated = 0; truncated < 19; ++truncated)
+        assert(!sony_parse_focus_caps(movie, truncated, &caps) && !caps.recording_known);
     if (argc == 2) {
         FILE *f = fopen(argv[1], "rb"); assert(f);
         uint8_t sample[16384]; size_t n = fread(sample, 1, sizeof(sample), f);
         assert(feof(f)); fclose(f);
         assert(sony_parse_focus_caps(sample, n, &caps));
-        printf("capture dataset=%zu focus_known=%d focus=%u zoom_known=%d zoom=%u\n",
-               n, caps.focus_known, caps.focus_mode, caps.zoom_known, caps.zoom_enabled);
+        printf("capture dataset=%zu focus_known=%d focus=%u zoom_known=%d zoom=%u record_known=%d recording=%d\n",
+               n, caps.focus_known, caps.focus_mode, caps.zoom_known, caps.zoom_enabled, caps.recording_known, caps.recording);
         for (size_t truncated = 0; truncated < n; ++truncated)
             assert(!sony_parse_focus_caps(sample, truncated, &caps));
     }

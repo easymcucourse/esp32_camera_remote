@@ -9,7 +9,7 @@
 - 读取取景对象 `0xFFFFC002`，以 1024×576 原尺寸居中显示。
 - CPU0 接收，CPU1 独立任务使用 ESP32-S3 SIMD JPEG 解码。
 - 两个 1MiB 接收缓冲、LCD 双帧缓冲、30 行 DMA bounce buffer。
-- 右上角显示 Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、曝光模式和 DS4 连接状态；设置界面底部也显示 DS4 状态，连接绿色、断开红色。
+- 右上角显示相机电量、对焦模式、Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、曝光模式和 DS4 连接状态（屏幕不显示手柄电量）；设置界面底部也显示 DS4 状态，连接绿色、断开红色。
 - Start（DS4 Options）或串口 `S` 切换预览和设置界面；当前映射为 Y 切曝光 Mode、X 切对焦模式、L1/R1 变焦或条件手动对焦，已烧录，待相机效果验收。
 - ATOM 在蓝牙输入回调中缓存最多 128 次按键位图变化，LCD 确认后删除事件，并按事件 ID 去重，保留短按和连续按键。
 - Inter、思源黑体和 JetBrains Mono 字体使用 FreeType 灰度抗锯齿渲染，字体资源和许可证随工程提交。
@@ -17,7 +17,9 @@
 - 工程源码全局使用 `-O2` 优化，Octal PSRAM 运行于 120MHz。
 - 串口暂停、恢复、配对诊断；通信失败后重试连接。
 
-全屏取景实测约 **3.5–4.0 FPS**，详细页因缩放 JPEG 并绘制参数面板约 **2.4 FPS**，数值随 Wi-Fi 和画面内容变化。画面、FPS 和 18MHz LCD 扫描均已上板确认稳定，暂停／恢复测试通过；断电断网恢复尚未单独进行故障注入测试。
+当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 和云台的真实电量来源仍待接入。
+
+最新显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**；实际相机取景窗口约 **2.8 FPS**，尚未达到性能目标。基准不代表网络取景或长期稳定性，详见 [显示实测](docs/records/display-profile-test-20261003.md)。
 
 ## 硬件与依赖
 
@@ -47,7 +49,7 @@ idf.py build
 idf.py -p COM8 flash monitor
 ```
 
-将 COM8 替换为实际串口；监视器按 `Ctrl+]` 退出。默认配置在 `sdkconfig.defaults`，应用分区为 12MiB factory，剩余 0x3F0000 字节作为 `data` SPIFFS 分区，不提供 OTA。常规烧录保留 NVS 配对身份；擦除整片 Flash 会丢失该身份。
+将 COM8 替换为实际串口；监视器按 `Ctrl+]` 退出。默认配置在 `sdkconfig.defaults`，应用分区为两个 6MiB OTA 槽，另有 `otadata` 和 0x3E0000 字节 `data` SPIFFS 分区。常规烧录保留 NVS 配对身份，但完整烧录会初始化 OTA 启动元数据；已有 OTA 设备的更新方式见 [编译与烧录](docs/development/build-and-flash.md)。擦除整片 Flash 会丢失配对身份。
 
 Windows 包装脚本：
 
@@ -146,7 +148,7 @@ python tools/serial_log.py --port COM8 --seconds 60 --output build/lcd-input.log
 
 ## 故障排查与恢复
 
-常见连接、显示及 ATOM 问题见 [故障排查](docs/user-guide/troubleshooting.md)。只重置热点可用 factory wifi，热点与 LCD 相机身份一起重置可用 factory all，两者都需 10 秒内输入 factory confirm。全部重置停止相机后清除指定记录，成功重启 LCD，ATOM 手柄绑定保留；该路径的实机效果仍待验收。热点菜单也提供两级二次确认，操作见 [手柄手册](docs/user-guide/controller.md#热点页)。
+常见连接、显示及 ATOM 问题见 [故障排查](docs/user-guide/troubleshooting.md)。只重置热点可用 factory wifi，热点、LCD 相机身份和显示档位一起重置可用 factory all，两者都需 10 秒内输入 factory confirm。全部重置停止相机后清除指定记录，成功重启 LCD，ATOM 手柄绑定保留；该路径的实机效果仍待验收。热点菜单也提供两级二次确认，操作见 [手柄手册](docs/user-guide/controller.md#热点页)。
 
 ## 项目结构
 
@@ -156,13 +158,13 @@ components/board_7b/   LCD 初始化、JPEG 解码、帧同步、字体及参数
 components/ptpip/      PTP/IP 传输、报文、会话及标准数据集解析
 components/sony_camera/ Sony 扩展命令、属性及能力解析
 common/                两端共用 I²C 协议、LCD 链路状态机和串口参数解析
-tests/host/            28 项 CTest（含 ATOM 测试和四份属性样本）
+tests/host/            49 项 CTest（含维护 JSON / 热点、UART / I²C 监视 / 手柄模拟、ATOM 测试和四份属性样本）
 m5_atom_matrix/        M5Stack ATOM Matrix 独立 ESP-IDF 子项目
 docs/                  硬件配置、协议分析和实测记录
 tools/                 编译、串口记录、自动连接测试、抓包与离线分析
 sdkconfig.defaults     目标、内存和 O2 默认配置
 dependencies.lock      固定组件依赖版本
-partitions.csv         NVS、PHY、12MiB 应用和剩余 data 分区
+partitions.csv         NVS、OTA 元数据、PHY、双 6MiB 应用和 data 分区
 ```
 
 `build/`、`managed_components/`、`captures/`、`backups/`、`.reference/` 和本地 `sdkconfig` 不提交。文档引用的原始抓包、固件备份和日志仅保存在开发机器上；脱敏属性裁剪样本提交在 `tests/host/fixtures/`。代码与文档核对结果见 [实施状态](docs/development/implementation-status.md#代码与文档核对2026-10-03)。

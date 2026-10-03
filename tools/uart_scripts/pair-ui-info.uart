@@ -1,0 +1,19 @@
+@lcd ui info
+expect "info=full"
+@atom pad sim on
+pad connect
+wait 250
+tap touch 100
+wait 150
+@lcd ui info
+expect "info=compact"
+@atom pad overflow
+tap touch 100
+wait 150
+@lcd ui info
+expect "info=compact"
+ui info full
+@atom pad sim off
+wait 150
+@lcd ui info
+expect "info=full"

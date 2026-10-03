@@ -2,16 +2,16 @@
 
 本文定义 LCD 和 ATOM 的 UART 调试控制台：通过串口输入命令查看状态、模拟 LCD ↔ ATOM 的 I²C 通信、模拟手柄动作和注入故障。目的是在没有手柄、没有 ATOM 或没有 LCD 的情况下，也能单独开发和测试每一端，并让测试可以用脚本重复执行。
 
-> LCD 行输入、help、旧相机命令与 wifi / factory 已部分实现；ATOM 控制台、统一状态 / 日志控制、模拟、故障注入及脚本回放仍为目标需求。当前命令见 [串口手册](../user-guide/serial.md)，后续语法可调整，但须保持两端风格一致。
+> 双端行输入、help / version / status / log、请求号与脚本回放已实现；LCD 保留旧相机命令及 wifi / factory，显示回调故障注入已实测。ATOM 手柄模拟 / 动作序列及真实 I²C 切页、模拟量、溢出保护已实测；双端 I²C 监视 / 分类统计已接入并实测；ATOM CRC / 丢响应 / 延时已实测；ATOM `i2c req` 已实现；Matrix 四角校准和故障图案已实现，LCD 本地模拟及输入 / 故障 / 物理心跳暂停恢复已实测。当前命令见 [串口手册](../user-guide/serial.md)，后续语法可调整，但须保持两端风格一致。
 
 ## 现状
 
 | 设备 | 当前串口输入 |
 | --- | --- |
-| LCD（UART0，115200） | pair_console 按行接收、Enter 执行；最多 255 字节，支持引号 / 转义，兼容 j / s / S / p / u，并支持 help、wifi 与两级 factory 重置 |
-| ATOM（UART0，115200） | 只输出日志，不处理输入 |
+| LCD（UART0，115200） | debug_console 按行接收、Enter 执行；最多 255 字节，支持引号 / 转义，兼容 j / s / S / p / u，并支持 help、wifi 与两级 factory 重置 |
+| ATOM（UART0，115200） | debug_console 按行接收，支持 help / version / status / log 与请求号 |
 
-调试手柄相关功能必须实际连接 DS4 并手动按键，无法重复；测试 I²C 异常需要拔线；单独调试 LCD 时必须接 ATOM。
+ATOM 已支持手柄模拟、原始请求与故障注入，可脚本回放。LCD 支持本地 ATOM 模拟，经同一协议客户端和输入路径验证，本地回放已实测。
 
 ## 范围
 

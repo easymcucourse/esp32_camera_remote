@@ -1,0 +1,20 @@
+@atom i2c req a50201010202000086
+expect "status=OK reply=5a020101000c"
+i2c req a5 02 01 01 02 02 00 00 86
+expect "status=OK"
+i2c req a50201010202000079
+expect "status=BAD_CRC"
+i2c req a50302010202000022
+expect "status=BAD_VERSION"
+i2c req a502037f00000000e2
+expect "status=UNKNOWN_CMD"
+i2c req a502041000000000a1
+expect "status=OK reply=5a020410001c"
+i2c req 000000000000000000
+expect "status=NO_RESPONSE reply=-"
+!atom i2c req a5
+!atom i2c req a 5 02 01 01 02 02 00 00 00
+!atom i2c req a502010102020000xx
+!atom i2c req
+status
+expect "sim=0"

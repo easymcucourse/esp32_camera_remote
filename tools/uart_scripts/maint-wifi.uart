@@ -1,0 +1,10 @@
+# Development audit changes SSID/password/channel temporarily and restores its snapshot.
+status
+maint on stop
+expect "on=1"
+maint probe wifi
+expect "passed=38 transport=loopback restored=1"
+maint off
+expect "on=0"
+wait 300
+status

@@ -1,0 +1,95 @@
+@lcd status
+expect "session=0"
+atom sim on
+wait 200
+pad connect
+pad battery 7
+wait 200
+status
+expect "atom=1"
+expect "ds4=1"
+expect "sim=1"
+expect "settings=0"
+tap start 100
+wait 200
+status
+expect "settings=1"
+tap start 100
+wait 200
+status
+expect "settings=0"
+stick r -128 127
+trigger rt half
+wait 150
+status
+expect "R=(-128,127) LT=0 RT=153"
+release all
+wait 150
+status
+expect "R=(0,0) LT=0 RT=0"
+pad gap
+tap start 100
+wait 250
+status
+expect "settings=0"
+pad overflow
+tap start 100
+wait 250
+status
+expect "settings=0"
+atom crc 2
+wait 250
+status
+expect "atom=1"
+expect "failures=0"
+atom fail 3
+expect "ATOM link lost" 2
+wait 1200
+status
+expect "atom=1"
+atom timeout 3
+expect "ATOM link lost" 2
+wait 1200
+status
+expect "atom=1"
+atom version 1
+expect "firmware version mismatch" 2
+atom version 2
+wait 200
+status
+expect "atom=1"
+atom reboot
+expect "ATOM restarted" 2
+wait 200
+status
+expect "boot_id=2"
+pad connect
+wait 200
+trigger rt full
+wait 150
+atom offline
+wait 150
+status
+expect "atom=0"
+expect "LT=0 RT=0"
+expect "sim=1"
+atom online
+wait 200
+status
+expect "atom=1"
+gimbal state connected
+!lcd atom version 256
+!lcd atom fail -1
+!lcd pad battery 11
+!lcd gimbal state invalid
+wait 1600
+@atom status
+expect "lcd=0"
+@lcd atom sim off
+wait 1200
+status
+expect "atom=1"
+expect "sim=0"
+expect "settings=0"
+@atom status
+expect "lcd=1"

@@ -1,0 +1,17 @@
+@lcd maint off
+expect "on=0"
+@lcd status
+expect "session=0"
+expect "settings=0"
+@atom pad sim on
+pad connect
+wait 250
+tap select 2200
+expect-any "on=1 result=ESP_OK" 4
+@lcd maint probe
+expect "passed=14 transport=loopback"
+@atom pad sim off
+wait 250
+@lcd status
+expect "maint=0"
+expect "sim=0"

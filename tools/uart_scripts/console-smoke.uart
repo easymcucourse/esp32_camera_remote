@@ -1,0 +1,9 @@
+# Works on either firmware. No camera actions, binding changes, or NVS writes.
+help
+version
+expect "protocol=2" 2
+status
+expect "sim=0" 2
+log "*" info
+! log "*" bogus
+status

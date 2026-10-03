@@ -2,17 +2,17 @@
 
 本文汇总项目的测试分层、现有测试、计划新增的测试、实机与故障注入测试、长时间稳定性测试以及 CI 方案。各模块的具体测试用例写在对应设计文档中，本文只做汇总和约定。
 
-> 2026-10-03 按当前 `tests/host/CMakeLists.txt` 重新配置、构建并执行：28 项全部通过（25 个可执行文件，属性样本可执行文件注册四项测试）。CI 尚未建立。文末日期段落为各轮历史结果，不代表当前总数。
+> 2026-10-03 按当前 `tests/host/CMakeLists.txt` 构建并执行：49 项全部通过（44 个 C 可执行文件及两个 Python 工具测试，属性样本程序注册四项测试）。CI 配置已加入，远端 Actions 尚未执行。文末日期段落为各轮历史结果，不代表当前总数。
 
 ## 1. 测试分层
 
 | 层级 | 运行环境 | 目的 | 现状 |
 | --- | --- | --- | --- |
-| 主机单元测试 | PC，gcc / clang | 纯 C 解析、编码、状态机 | 统一 CTest 28 项 |
+| 主机单元测试 | PC，gcc / clang、Python 3 | 解析、编码、状态机、脚本工具 | 统一 CTest 49 项 |
 | 主机工具验证 | PC | 字体渲染、界面截图、抓包样本解析 | `font_preview_host` |
-| 编译检查 | CI，ESP-IDF 5.5.1 | 两个工程都能编译 | 手工 |
+| 编译检查 | CI，ESP-IDF 5.5.1 | 两个工程开发 / 关闭模拟构建 | 四项矩阵已配置，远端待验证 |
 | 实机功能测试 | 开发板 + 相机 + 手柄 | 按需求文档的验收测试逐项确认 | 手工 |
-| 故障注入测试 | 实机 | 断电、断网、异常数据、资源耗尽 | 未进行 |
+| 故障注入测试 | 实机 | 断电、断网、异常数据、资源耗尽 | 已测离线 LCD 恢复与 ATOM I²C CRC / 丢响应 / 延时，其余待验收 |
 | 稳定性测试 | 实机，≥ 30 分钟 | 帧率、延迟、内存、重连次数 | 未系统进行 |
 
 ## 2. 主机单元测试
@@ -20,7 +20,7 @@
 ### 约定
 
 - 纯 C11，只用 `assert` 和标准库，不引入测试框架；与现有 `m5_atom_matrix/tests` 风格一致。
-- 新增纯逻辑模块尽量不依赖 FreeRTOS / lwIP；时间由调用方传入。现有 transport、NVS 和发送适配回归使用 `network_stubs`、`identity_stubs`、`tx_stubs` 与日志替身，不等同于硬件驱动测试。
+- 新增纯逻辑模块尽量不依赖 FreeRTOS / lwIP；时间由调用方传入。现有 transport、NVS 和发送适配回归使用 `network_stubs`、`identity_stubs`、`tx_stubs`、`display_stubs` 与日志替身，不等同于硬件驱动测试。
 - 编译选项：`-std=c11 -Wall -Wextra -Werror`；CI 中另加 `-fsanitize=address,undefined`。
 - 每个测试是独立可执行文件，返回 0 表示通过。
 
@@ -30,6 +30,18 @@
 
 | 测试 | 数量 | 覆盖 |
 | --- | ---: | --- |
+| `image_stride` | 1 | RGB565 原地行距展开、重叠与不重叠搬移、零尺寸 / 容量 / 溢出拒绝及前后守卫 |
+| `atom_fault` | 1 | 故障计数有限递减、drop 优先 / 保留 CRC 次数、持续延时及关闭 |
+| `i2c_monitor` | 1 | 分类、变化过滤、失败保留、缓冲 / 溢出及统计重置 |
+| `pad_cmd`、`pad_player` | 2 | 手柄别名 / 组合 / 序列、范围及原子拒绝；动作绝对截止、队列、取消释放、计时回绕 / 迟唤醒 |
+| `maint_auth` | 1 | PIN 拒绝采样、5 次失败 / 60 秒锁定、回绕、单会话 / token 失效及解析 |
+| `maint_confirm` | 1 | 三秒双确认、边界到期、导航 / gap 代数取消、计时回绕 |
+| `restart_schedule` | 1 | 预留 / 取消、响应后提交、重复拒绝、截止时间与计时回绕 |
+| `ota_header` | 1 | 芯片 / 项目 / 大小 / 描述 / SHA 标志 / 段边界及编译时间比较；不替代完整镜像校验 |
+| `maint_json`、`maint_wifi` | 2 | 平面 JSON / 嵌入 NUL / 深度限制、部分热点字段 / 严格整数信道 / 原子拒绝 |
+| `doc_links` | 1 | 文件 / 标题 / 编码 / 围栏与非零失败退出 |
+| `debug_line`、`uart_script` | 2 | CRLF / 退格 / 超长及非法行丢弃、请求号溢出；新鲜 ACK、异步 token、跨端等待、分段日志 |
+| `sony_liveview`、`board_lcd`、`liveview_pipeline` | 3 | JPEG 段 / 扫描标记边界、单帧丢弃 / 连续损坏、LCD 缓冲所有权 / 旧回调 / 限次恢复、致命错误排空 |
 | `factory_reset`、`wifi_menu`、`wifi_config`、`wifi_apply`、`debug_args` | 5 | 维护占用与重置失败 / 回滚、热点草稿 / 校验 / 编解码 / 应用、行参数解析 |
 | `atom_slave_tx`、`atom_protocol`、`ds4_events`、`ds4_report`、`matrix_model` | 5 | 发送缓冲替换、CRC / 重同步 / 主机状态、事件缓存 / HID、灯阵模型 |
 | `gamepad_input`、`camera_actions`、`setting_control`、`camera_menu` | 4 | 输入 / 释放、动作代数、目标合并、七项参数控制 |
@@ -45,10 +57,9 @@
 
 | 测试 | 所在目录 | 设计文档 |
 | --- | --- | --- |
-| `test_ptpip_packet`、`test_ptp_dataset`、`test_sony_props`、`test_sony_format`、`test_sony_liveview`、`test_ui_presenter` | `tests/host/` | [Sony PTP/IP 客户端分层设计](../design/sony-ptpip-design.md#12-测试) |
+| `test_ptpip_packet`、`test_ptp_dataset`、`test_sony_props`、`test_sony_format`、`test_ui_presenter` | `tests/host/` | [Sony PTP/IP 客户端分层设计](../design/sony-ptpip-design.md#12-测试) |
 | `test_matrix_status`（灯阵渲染） | `m5_atom_matrix/tests/` | [Matrix LED 状态显示设计](../design/matrix-led-design.md#主机渲染测试) |
 | `test_gimbal_control` | `m5_atom_matrix/tests/` | [BLE 云台控制设计](../design/gimbal-design.md#7-测试) |
-| `test_pad_cmd`、`test_dbg_line`、`test_i2c_monitor` | `tests/host/`，两端共用 | [UART 调试控制台设计](../design/uart-debug-design.md#12-测试) |
 | `test_maint_auth`、`test_ota_header` | `tests/host/` | [维护页面设计](../design/maintenance-design.md#10-测试) |
 
 ### 新增回归（2026-10-02）
@@ -84,7 +95,7 @@ wifi_config 覆盖字段边界、100 字节记录、损坏记录及随机密码�
 | TCP 异常 | PC 端模拟相机（回放抓包并注入截断、超长、错误事务号、连接复位） | 不崩溃、不越界，断开重连 |
 | 事件积压 | 模拟相机连续发送事件 | 每帧读取上限生效，取景不被饿死 |
 | PSRAM 分配失败 | 调试构建中用钩子让 `heap_caps_malloc` 第 N 次失败 | 记录日志并重试，不复位 |
-| LCD 帧同步超时 | 调试构建中屏蔽帧完成回调 | 执行恢复流程（实现后） |
+| LCD 帧同步超时 | 调试构建中屏蔽帧完成回调 | 执行恢复流程（代码与主机故障注入通过；实机待验收） |
 | I²C 错误 | 拔插 SDA / SCL；注入错位字节 | 3 次失败判定断开，恢复后自动重连，释放 S1/S2 |
 | ATOM 事件溢出 | 调试构建中缩小缓存容量并快速按键 | 灯阵显示溢出，LCD 不误触发 |
 
@@ -107,20 +118,16 @@ PC 端模拟相机计划作为 `tools/` 下的新脚本，读取导出的样本�
 
 ## 6. CI
 
-平台使用仓库托管方提供的 CI（GitHub Actions），触发条件为推送和合并请求。
+配置见 [GitHub Actions](../../.github/workflows/ci.yml)，推送、合并请求或手动触发。所有作业只读仓库权限；同一分支的新运行取消旧运行。
 
 | 作业 | 环境 | 步骤 |
 | --- | --- | --- |
-| `build-lcd` | `espressif/idf:v5.5.1` 容器 | `idf.py set-target esp32s3 build`；上传 `.bin` 和 `size` 报告 |
-| `build-atom` | 同上 | `cd m5_atom_matrix && idf.py set-target esp32 build` |
-| `host-tests` | `ubuntu-latest`，gcc | 编译并运行全部主机测试，开启 ASan / UBSan |
-| `docs-links` | `ubuntu-latest` | 检查 Markdown 相对链接有效 |
+| `host` | Ubuntu 24.04，Clang / Python | 离线文档链接检查、全部 CTest；Debug 保留 assert，启用 ASan / UBSan 与失败退出 |
+| `firmware` | `espressif/idf:v5.5.1`，四项矩阵 | LCD / ATOM × debug / release；使用独立 sdkconfig，关闭模拟的版本检查模拟符号未链接 |
 
-约定：
+[构建入口](../../tools/ci_build.py) 使用工程 sdkconfig.defaults 与 tools/ci 对应覆盖，不读取本机根目录 sdkconfig。每项生成 size.json，并上传应用 / bootloader / 分区表、ELF、MAP、flash_args 和 sdkconfig。硬件测试、烧录和发布仍属于独立验收。
 
-- 所有作业通过才能合并。
-- 组件依赖由 `dependencies.lock` 固定；CI 缓存 `managed_components/`。
-- 固件大小报告与上一次对比，增长超过 5% 时在合并请求中提示。
+组件版本以 dependencies.lock 和组件 manifest 为准；当前不缓存 managed_components。大小增长超过 5% 的基线比较 / 提示尚未接入。要求所有作业通过才能合并是目标，仓库分支保护是否启用尚未确认。远端工作流未执行，不能把本机测试通过记为 Actions 通过。
 
 以下日期小节保留当轮测试 / 烧录状态；最新总数与当前覆盖以上面的“当前注册测试”为准。
 

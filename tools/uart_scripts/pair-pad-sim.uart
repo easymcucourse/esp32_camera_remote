@@ -1,0 +1,31 @@
+# Real I2C path, camera offline is sufficient. No capture / factory commands.
+@atom pad sim on
+pad connect
+pad battery 5
+wait 250
+@lcd status
+expect "sim=1"
+expect "ds4=1"
+@atom tap start 100
+@lcd status
+expect "settings=1"
+@atom tap options 100
+@lcd status
+expect "settings=0"
+@atom stick r -128 127
+trigger rt half
+wait 150
+@lcd status
+expect "R=(-128,127) LT=0 RT=153"
+@atom release all
+wait 150
+@lcd status
+expect "R=(0,0) LT=0 RT=0"
+@atom pad overflow
+tap start 100
+@lcd status
+expect "settings=0"
+@atom pad sim off
+wait 150
+@lcd status
+expect "sim=0"

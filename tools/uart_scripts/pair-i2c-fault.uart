@@ -1,0 +1,32 @@
+@lcd i2c stats reset
+i2c log changes
+@atom i2c corrupt 2
+wait 350
+@lcd status
+expect "atom=1"
+expect "failures=0"
+i2c stats
+expect "bad_crc=2"
+@atom i2c corrupt 3
+expect-any "ATOM link lost" 3
+wait 1400
+@lcd status
+expect "atom=1"
+@atom i2c drop 3
+expect-any "ATOM link lost" 3
+wait 1400
+@lcd status
+expect "atom=1"
+@atom i2c delay 100
+wait 350
+i2c delay 0
+wait 1700
+@lcd status
+expect "atom=1"
+i2c stats
+i2c log off
+!atom i2c delay 201
+!atom i2c corrupt -1
+@atom i2c corrupt 0
+i2c drop 0
+i2c delay 0

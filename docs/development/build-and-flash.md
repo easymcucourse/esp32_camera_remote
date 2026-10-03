@@ -22,8 +22,9 @@ idf.py -p COM8 flash monitor
 ```
 
 - `sdkconfig.defaults`：全局 `-O2`、Flash 120MHz（当前设备启动报告 80MHz）、Octal PSRAM 120MHz（实验配置）。
-- `partitions.csv`：NVS、PHY、12MiB factory、剩余 SPIFFS data；没有 OTA 分区。
+- `partitions.csv`：NVS 保持 `0x9000` / 24 KiB，OTA 元数据 `0xF000` / 8 KiB、PHY `0x11000`；`ota_0` / `ota_1` 位于 `0x20000` / `0x620000`，各 6 MiB，剩余 data 从 `0xC20000` 起。首次迁移必须 USB 烧录完整 flash_args；默认启用回滚，新 OTA 固件连续健康运行六十秒后确认。
 - 常规烧录保留 NVS 中的热点配置和相机身份；擦除整片 Flash 后需要重新配置 / 配对。
+- USB `flash` 会同时初始化 otadata，启动 `ota_0`；OTA 只写非当前应用分区，不改 NVS / 分区表。网页选择应用 `.bin`，不要选择 bootloader 或合并整片镜像。CI 检查 LCD 镜像不超过 5 MiB 并开启回滚；已有本地 sdkconfig 也须开启 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`。
 - 本地 `sdkconfig` 不提交。已有配置需用 `idf.py menuconfig` 修改；若要重新采用默认配置，先备份本地 `sdkconfig`，移开后重新生成。仅执行 `reconfigure` 不会覆盖已有配置值。
 - 国家码由 `main/Kconfig.projbuild` 的 `APP_WIFI_COUNTRY` 设置，默认 `JP`。
 
@@ -80,7 +81,7 @@ cmake --build build/host -j 4
 ctest --test-dir build/host --output-on-failure
 ```
 
-其他环境选择已安装的 CMake generator；同一个构建目录不混用 generator。统一 CTest 当前有 28 项，包括 DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
+其他环境选择已安装的 CMake generator；同一个构建目录不混用 generator。统一 CTest 当前有 49 项，包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
 
 合成输入在测试源码中；四份脱敏属性裁剪样本位于 [fixtures](../../tests/host/fixtures/README.md)，由属性提取工具生成，不包含原始网络包。主机回归不证明真实 NVS、射频、相机写入或界面视觉效果。
 
@@ -95,4 +96,18 @@ ctest --test-dir build/host --output-on-failure
 
 ## 待改进
 
-默认端口、SDK / Python 路径仍带本机默认值，自动发现尚未实现；抓包样本工具的可移植性及双工程 CI 也待完善。`-ProjectDirectory` 已支持 ATOM，不再作为待实现功能。
+默认端口、SDK / Python 路径仍带本机默认值，自动发现尚未实现；抓包样本工具的可移植性仍待完善；双工程 CI 已配置，远端执行待验证。`-ProjectDirectory` 已支持 ATOM，不再作为待实现功能。
+
+## 可移植 CI 构建
+
+先激活 ESP-IDF 5.5.1 环境，再从仓库根目录运行（Windows / Linux 均使用当前 IDF Python）：
+
+```sh
+python tools/ci_build.py lcd debug
+python tools/ci_build.py lcd release
+python tools/ci_build.py atom debug
+python tools/ci_build.py atom release
+python tools/check_doc_links.py
+```
+
+输出在 build/ci-板名-档位，sdkconfig 也在相应目录。每种配置首次生成时读取工程默认值及 tools/ci 覆盖；后续保留该目录配置，修改默认值后使用新的构建目录验证。命令不烧录、不修改原工程 sdkconfig。release 构建检查模拟函数未链接，正常 UI 偏好仍保留。工作流见 [测试与 CI](testing.md#6-ci)。

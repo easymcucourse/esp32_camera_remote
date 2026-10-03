@@ -2,6 +2,7 @@ captures/
 __pycache__/
 .reference/
 build/
+build-release/
 sdkconfig
 sdkconfig.old
 managed_components/
@@ -11,3 +12,6 @@ backups/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local agent memory
+/memory/

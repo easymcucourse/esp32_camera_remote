@@ -1,0 +1,12 @@
+# LCD callback fault injection; includes an intentional soft reboot, no NVS erase.
+status
+display fault once
+expect "LCD recovery complete" 8
+status
+expect "display_failed=0" 2
+display fault persistent
+expect "LCD recovery attempt 3/3" 10
+expect "Display restart: camera_drained=1; NVS preserved" 10
+expect "READY: LCD connection screen" 15
+status
+expect "display_failed=0" 2

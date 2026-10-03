@@ -2,7 +2,7 @@
 
 本文是 [维护页面需求](../request/maintenance-request.md) 的实现设计，定义维护模式、分区表调整、网页服务、登录、HTTP 接口、热点设置、OTA 流程与回退。需求编号（R1.1 等）指需求文档中的条目。热点配置的数据结构、校验和生效流程沿用 [Wi-Fi 热点设计](wifi-ap-design.md)。
 
-> 草案：本设计尚未实现。分区表调整需要一次 USB 烧录，见第 2 节。
+> 维护 / 登录 / 热点设置 / 安全重启，以及 OTA 检查 / 上传 / 进度 / 双分区与六十秒回滚确认已接入。下面包含尚待完成的提示、并发失败和完整验收目标；各项证据与边界见实施状态。
 
 ## 1. 设计约束
 
@@ -16,7 +16,7 @@
 
 ## 2. 分区表
 
-当前分区表没有 OTA 分区。调整为：
+当前双 OTA 分区表为：
 
 | 名称 | 类型 | 子类型 | 偏移 | 大小 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -93,11 +93,11 @@ void      maint_mode_touch(void);        /* 每个已登录的请求调用，重
 - **进入**：生成 PIN 和空的会话表 → 启动 HTTP 服务 → 通知显示。服务启动失败时返回错误，维护模式保持关闭。
 - **退出**：停止 HTTP 服务（`httpd_stop` 会关闭所有连接）→ 清除 PIN 和令牌 → 通知显示 → 若相机自动连接因维护模式暂停，则恢复（见 4.1）。`Updating` 状态下拒绝退出，返回 `ESP_ERR_INVALID_STATE`。
 - **控制任务**：开启、退出、超时都由常驻任务 `maint_ctl`（优先级 2，栈 3072 字节）串行执行。`httpd_stop` 要等正在执行的请求处理函数返回，可能阻塞数百毫秒，因此其他任务只发送请求，不直接调用。
-- **超时**：`maint_ctl` 每 10 秒检查一次，距最后一次已登录请求超过 10 分钟即退出（R1.4）。登录页面的请求不刷新计时，防止未登录者让维护模式一直开启。
+- **超时**：`maint_ctl` 空闲时每约 100 ms 检查，距最后一次已登录请求超过 10 分钟即退出（R1.4）。登录页面的请求不刷新计时，防止未登录者让维护模式一直开启。
 - **显示**：维护模式只在相机没有会话时开启，因此信息框只画在连接页的空白区域（y = 560 附近），不进入取景叠加层：`MAINTENANCE http://192.168.4.1/ PIN 482913 09:42`。过渡期通过 `board_7b_set_maint_text()` 提交文字，重构后由 `ui_presenter` 生成。
 - **入口**：
-  - 连接页（相机无会话）：按住 Select 2 秒切换开 / 关，按键分配需在 [手柄控制方案](../request/gamepad-request.md) 中确认。以 `MAINT_ENABLE_KEEP_CAMERA` 开启。
-  - SETTINGS 菜单（取景中）末尾增加 `MAINTENANCE`：第一次按确认键显示 `STOP LIVE? PRESS AGAIN`，3 秒内再按一次后以 `MAINT_ENABLE_STOP_CAMERA` 开启。
+  - 连接页（相机无会话且非 SETTINGS）：按住 Select / Share 2 秒切换开 / 关，见 [手柄控制方案](../request/gamepad-request.md)。按住只触发一次；断连、gap、相机会话或切页取消计时，只有新的按下边沿能重新开始。开启允许相机继续连接。
+  - SETTINGS 菜单末尾 `MAINTENANCE`：第一次按 A 显示 `STOP LIVE? PRESS A AGAIN`，3 秒内再按一次后取得相机维护 lease、排空并暂停自动连接，再开启网页。左右重复不会确认；导航、B、切页或输入 gap / 断连递增输入代数，取消确认与尚未处理的旧请求。开启后回连接页；维护已开启时菜单 A 关闭，不需要停止确认。菜单增加为 17 行、30 像素行高，七个相机参数和 WI-FI 仍保留。
   - 串口命令 `maint on [stop]|off|status` 注册在 [UART 调试控制台](uart-debug-design.md) 中。相机有会话时 `maint on` 返回 `ERR camera connected, use "maint on stop"`；`maint status` 输出状态、剩余时间、PIN 和相机是否被暂停。
 
 ### 4.1 与相机会话互斥（R1.5）
@@ -191,16 +191,22 @@ bool maint_auth_check(const maint_auth_t *auth, const char *bearer_hex);
 - `/api/info` 字段：`version`、`build_time`、`idf_version`、`running_partition`、`uptime_s`、`free_internal`、`free_psram`、`camera_state`、`atom_state`、`clients[]`（`mac`、`ip`、`rssi`）。MAC 只在本页面显示，不写入日志。
 - 网页不返回当前 Wi-Fi 密码（R4.2）；需要查看时看 LCD 连接页或串口 `wifi show password`。
 
+### 5.4 安全重启（已接入）
+
+网页按钮先弹出确认，再发送仅包含 `confirm:true` 的平面对象；未登录返回 401，未确认 / 字段类型 / 重复或多余字段返回 400。服务器先预留唯一重启请求，重复请求 409；完整发送 `reboot_in_ms:1500` 响应后提交截止时间，发送失败取消，预留期间不会重启。
+
+约 1.5 秒后，已有内部 RAM 栈的 health 任务执行重启，不在 HTTP 或 PSRAM 栈上重启。先调用 `maint_mode_quiesce(3000)` 设置终止标志，拒绝新开启，并由维护任务串行关闭 HTTP、清除鉴权及释放自己持有的相机 lease，终止路径不恢复相机自动连接；确认关闭后再由 health 取得相机 lease，最多三秒排空，记录结果并软重启。LCD 三次恢复失败也走同一路径，避免维护先前持有 lease 时直接二次取得而失败。所有等待有界，若关闭 / 排空失败仍记录失败并尝试重启；不能把该退路视为成功排空。重启后维护默认关闭、调试模拟默认关闭，NVS 不擦除。
+
 ## 6. 热点设置（R4）
 
 `POST /api/wifi` 的处理：
 
 1. 用当前配置填充未提供的字段，逐项调用 `wifi_config_check_*`；失败返回 `400`，正文为 `{"field":"password","error":"password must be 8-63 printable ASCII characters"}`，错误文字与串口相同。
 2. 与当前配置相同时返回 `{"restart_in_ms":0}`，不重启。
-3. 先发送 `200` 响应，再调用 `wifi_ap_request_apply(config, 0)`，由 `wifi_ap` 任务在 1.5 秒后执行。延迟是为了让响应在热点重启前送达浏览器。
+3. 先调用 `wifi_ap_prepare_apply` 预留任务与结果槽，队列忙返回 `409`；发送 `200` 响应，包含 `restart_in_ms:1500`、任务 `token` 和 `state:"pending"`。完整发送成功后调用 `wifi_ap_commit_apply(token, 1500)`；发送失败则取消，未提交的任务最多等待 25 秒，不修改 NVS 或驱动。延迟从提交时起算，避免热点重启打断响应。`GET /api/wifi` 返回最近任务的 `apply_state` / `apply_token`，失败时附 `apply_error`；响应成功表示已排队，尚不表示保存成功。
 4. 热点重启后浏览器的连接断开。网页在收到响应时显示新的 SSID 和“请重新连接热点后刷新本页”；不显示新密码，用户刚刚自己输入过。
 
-HTTP 服务的监听 socket 绑定在任意地址，热点重启时网络接口和 `192.168.4.1` 都不销毁，预计无需重启服务（待验证）。若实测监听失效，`wifi_ap` 在热点重启完成后通知 `maint_web` 重启 HTTP 服务。维护模式和 PIN 保持不变（R4.4），令牌作废，需要重新登录。
+HTTP 服务的监听 socket 绑定在任意地址，热点重启时网络接口不销毁。每次驱动重启尝试递增网络代数，HTTP 登录 / 鉴权时同步代数并作废旧令牌；维护模式和 PIN 保持不变（R4.4），需要重新登录。外部手机断开 / 重连和浏览器效果仍需实机验收。
 
 ## 7. OTA（R5）
 
@@ -244,10 +250,12 @@ sequenceDiagram
 ```
 
 - 同一时间只允许一个上传；已有上传时返回 `409`。
-- 进入上传前请求相机停止取景（与串口 `s` 相同），等待最多 2 秒。停止失败不阻止上传，只记录日志；取景停止是为了把 Wi-Fi 带宽和 CPU 让给上传（R5.4）。
+- 进入上传前由维护控制任务取得相机 lease，最多两秒停止 / 排空；已经由 STOP 维护持有时复用，不重复取得。停止失败拒绝上传，不写目标分区，避免与取景或动作并发。上传期间拒绝退出维护、暂停自动连接及超时关闭，仍读取手柄；失败后保留维护占用，可重试或关闭维护恢复自动连接。
 - 调用 `gamepad_input` 的安全释放（原因 `ota`），释放 S2、S1 和变焦（R5.4）。上传期间手柄输入仍会被读取，但相机已断开，不会发送命令。
 - `esp_ota_begin` 使用 `OTA_WITH_SEQUENTIAL_WRITES`，按需擦除扇区，避免一次性擦除 6MiB 造成长时间阻塞。
 - 进度每 5% 更新一次 LCD 文字 `UPDATING 45%`；网页通过 `XMLHttpRequest.upload.onprogress` 显示自己的进度，并在上传结束后轮询 `/api/ota/status` 获取校验结果。
+- 当前 HTTP 服务单任务串行处理完整上传，状态查询在上传处理完成后响应；上传中网页使用浏览器发送进度，LCD 独立显示设备实际收到比例。`/api/ota/check` 正文恰为 288 字节，并要求 `X-Image-Size` 声明完整文件大小；上传接口重新检查头部和大小。要求附带 SHA256，完整验证使用 `esp_ota_end`；`esp_ota_end` 失败时句柄已释放，只有尚未 end 的失败才调用 abort。
+- 完整镜像校验与启动元数据提交成功后，即使最后 HTTP 回执丢失也会重启进入新镜像；接收中断或校验失败不切换启动分区。网页发送进度满不代表校验通过。
 - 失败处理（R5.5）：接收超时、连接断开、`esp_ota_write` 或 `esp_ota_end` 失败时调用 `esp_ota_abort()`，状态置为 `failed` 并记录原因；不切换启动分区，不重启；维护模式回到 `On`。相机取景不自动恢复，用户在 LCD 或串口手动恢复（与 `s` 之后相同）。
 - OTA 只写应用分区，不触碰 `nvs`（R5.7）。
 
@@ -348,3 +356,14 @@ sequenceDiagram
 4. 实现 `maint_web` 的登录、`/api/info` 和网页。
 5. 接入 [Wi-Fi 热点设计](wifi-ap-design.md) 的 `wifi_ap_request_apply`，实现热点设置。
 6. 实现 OTA 上传、头部检查和失败处理；最后加入连接页的开关操作和设置菜单的 `MAINTENANCE` 项。
+
+## 2026-10-03 当前接入边界
+
+- 常驻 maint_ctl 串行启停服务与相机 lease，优先级 2 / 3072 字节；维护默认关闭，RAM 状态，已登录请求刷新 10 分钟计时。
+- maint on 保留相机自动连接；maint on stop 使用已有 camera_maintenance_acquire(2000) 停止 / 排空并阻止新开始，失败不启动 HTTP；退出时释放 lease 并重新启动相机。
+- OpenSession 成功处只提交会话通知；在进入 Sony 初始化之前等 HTTP 关闭（最多 2 秒，失败则关闭本次会话），保证 HTTP 不与 JPEG 取景并行。关闭前唤醒已连接 socket 的读写，随后 httpd_stop 排空；具体时延仍需在线相机验收。
+- 显示只提交文字 / 页面切换请求，board 连接页任务拥有绘制，避免 3 KiB 维护任务执行字体渲染。相机暂停后的最后一帧也会切到连接页。PIN 和令牌不写 NVS；HTTP 回环探测不输出凭据。
+- auth 使用拒绝采样 PIN、定长比较、128 位令牌；5 次失败换 PIN / 锁定 60 秒，新登录覆盖旧会话。
+- 页面内置确定性 gzip，端口 80 / priority 3 / stack 6144 / sockets 3。当前接口为 GET /、POST /api/login、POST /api/logout、GET /api/info、POST /api/maint/exit；JSON 上限 512 字节，认证失败 401、锁定 429。
+- 开发 maint probe 通过设备 AP 本地地址的 TCP / HTTP 执行回环审计，不通过 Wi-Fi 空口；生产关闭 REMOTE_DBG_SIM 时移除探测任务。手机实际访问与网页视觉仍待验收。
+- 自动关闭的 10 分钟实机窗口、60 秒锁定实机窗口、相机在线互斥 / 恢复、关闭提示 3 秒消失及 hand-held 入口尚待补齐 / 验证。设备信息只是基础网页，热点 / OTA 等继续实施，不降低原需求。

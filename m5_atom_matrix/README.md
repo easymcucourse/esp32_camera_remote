@@ -2,6 +2,8 @@
 
 这是一个独立的 ESP-IDF 5.5.1 工程，目标芯片为经典 ESP32。ATOM 作为 LCD 主系统的 I²C 从机，地址为 `0x42`。灯阵由独立状态任务显示启动进度、LCD / 无线连接与异常；LCD 不下发颜色命令。板载按键只上报状态和累计按下次数，不再切换颜色。
 
+普通状态前三行分别显示 DS 手柄、BLE 手柄、云台电量，最多五颗从左向右表示容量；≤20% 红闪，未连接或未知时熄灭。第五行保留连接灯，启动与故障图案仍优先覆盖。DS 使用实际报告；BLE / 云台只有电量提交接口，连接协议尚未接入。布局细则见 [Matrix 显示需求](../docs/request/matrix-led-request.md#普通状态布局)。
+
 ## 编译与烧录
 
 在已激活 ESP-IDF 环境的 PowerShell 中执行：
@@ -58,7 +60,7 @@ LCD 工作区新映射：Y（△）切下一曝光 Mode，X（□）切下一对
 报告解析测试（在项目根目录、有主机 GCC 的环境运行）：
 
 ```powershell
-gcc -std=c11 -Wall -Wextra -Werror -I m5_atom_matrix/main m5_atom_matrix/main/ds4_report.c m5_atom_matrix/tests/test_ds4_report.c -o m5_atom_matrix/build/test_ds4_report.exe
+gcc -std=c11 -Wall -Wextra -Werror -I common -I m5_atom_matrix/main m5_atom_matrix/main/ds4_report.c m5_atom_matrix/tests/test_ds4_report.c -o m5_atom_matrix/build/test_ds4_report.exe
 ./m5_atom_matrix/build/test_ds4_report.exe
 ```
 
@@ -87,3 +89,5 @@ ctest --test-dir build/host --output-on-failure
 ```
 
 已烧录，确认 v2 HELLO、新从机和 HID 初始化。首轮 DS4 高频输入下出现大量重试，提高回复任务 / ISR 优先级后 65 秒仍有一次 CRC 错误；IRAM 修正已烧录，单端复位恢复已观察，高频输入窗口尚待复现；单端重启、拔线、残留 FIFO 注入、15 ms 响应上限和 30 分钟稳定性仍待验收。
+
+2026-10-03：双端行控制台与 ATOM pad sim 已烧录；真实 I²C 上切页、摇杆 / 扳机、溢出保护及 50 次 100ms 点按通过。生产可关闭 CONFIG_REMOTE_DBG_SIM，独立构建已通过；当前设备运行开发版本。命令见 [串口手册](../docs/user-guide/serial.md)，证据与边界见 [模拟输入实测](../docs/records/pad-sim-test-20261003.md)。

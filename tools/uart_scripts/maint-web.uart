@@ -1,0 +1,22 @@
+# No PIN or bearer is printed by this loopback HTTP audit. Ends with maintenance off.
+status
+!lcd maint probe
+!lcd maint unknown
+maint on stop
+expect "on=1"
+status
+maint probe
+expect "passed=14 transport=loopback"
+status
+maint off
+expect "on=0"
+wait 300
+!lcd maint probe
+maint on stop
+expect "on=1"
+maint probe
+expect "passed=14 transport=loopback"
+maint off
+expect "on=0"
+wait 300
+status

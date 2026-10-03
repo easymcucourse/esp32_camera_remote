@@ -1,0 +1,13 @@
+# Writes a corrupted then valid copy of the running firmware into the OTHER OTA slot.
+# Requires the new dual-OTA partition table and a confirmed/initial running image.
+status
+maint on stop
+expect "on=1"
+maint probe ota
+expect "passed=21 transport=loopback"
+expect "Web restart: camera_drained=1; NVS preserved; maintenance_closed=1" 12
+expect "READY: LCD connection screen" 15
+expect "status=pending_verify" 5
+status
+expect "maint=0"
+expect "sim=0"

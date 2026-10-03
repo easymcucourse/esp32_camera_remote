@@ -2,7 +2,7 @@
 
 本文是 [UART 调试需求](../request/uart-debug-request.md) 的实现设计，定义两端控制台的行输入、命令注册、输出格式、LCD 的模拟 ATOM、ATOM 的模拟手柄与从机故障注入、I²C 监视，以及主机脚本工具 `tools/uart_script.py`。需求编号（R1.1 等）指需求文档中的条目。
 
-> 目标设计：LCD 已有按行输入、共享引号 / 转义解析、help / wifi / factory 和旧单字符命令；完整命令注册框架、ATOM 控制台、状态 / log / 模拟 / 故障注入与 uart_script.py 尚未实现。当前可执行命令见 [串口手册](../user-guide/serial.md)。模拟 ATOM 依赖 [I²C 通信协议（版本 2）](i2c-protocol-design.md) 的公共协议代码，按第 11 节的顺序实施。
+> 部分实现：双端共享 debug_console / debug_line / debug_args，已有 help / version / status / log、请求号及 uart_script.py；LCD 保留 wifi / factory 与相机命令，并支持显示回调故障注入。ATOM 已接 pad_cmd / pad_player、pad sim 与动作序列，经真实 I²C 输入，LCD 标注 SIM。双端 I²C 监视 / 分类统计已接入；ATOM CRC / 丢响应 / 延时已实测；ATOM `i2c req` 已接入同一协议处理任务，Matrix 四角校准与独立强制故障图案已实现，LCD 本地模拟 ATOM 已接入协议客户端并通过构建 / 实机回归。当前命令见 [串口手册](../user-guide/serial.md)。下文接口为目标草案，实际共用代码位于 common/，ATOM 模拟播放器使用 10ms 周期与绝对截止时间；生产选项 CONFIG_REMOTE_DBG_SIM 已接入双端。
 
 ## 1. 设计约束
 
@@ -370,8 +370,8 @@ size_t atom_slave_handle(atom_slave_t *slave, const uint8_t request[9],
 | 命令 | 行为 |
 | --- | --- |
 | `pad overflow` | 在 `ds4_host` 锁内调用 `ds4_events` 的测试入口：把 `dropped` 加 1 并置 `gap_pending`，不实际塞满 128 项。灯阵和 LCD 看到的效果与真实溢出相同（R4.6） |
-| `led test` | 调用 `matrix_status_debug_calibration(true)` 显示四角校准图，再次执行或 `led off` 时恢复 |
-| `led fault <bt\|i2c\|overflow> on\|off` | 调用 `matrix_status_debug_force(fault, on)`，在 `forced_mask` 中置位；显示优先级按 `fault_mask \| forced_mask` 计算，真实故障不受影响（R4.7） |
+| `led test` | 切换四角校准，每秒左上红、右上绿、右下蓝、左下白；再次执行恢复，`led off` 同时清除强制图案 |
+| `led fault <bt\|i2c\|overflow> on\|off` | 在独立 `matrix_debug_t.forced` 中置位；显示优先级按 `fault_mask \| forced_mask` 计算，真实故障不受影响（R4.7） |
 
 强制故障和校准图都只在 RAM 中，重启后清除。
 
@@ -396,7 +396,7 @@ void i2c_monitor_record(const i2c_frame_rec_t *rec);   /* 不阻塞 */
 
 - 日志关闭时只更新统计计数，直接返回。
 - 日志开启时写入 32 项环形缓冲（约 2KiB）；缓冲满时丢弃新记录并累加 `log_dropped`，不等待。控制台任务每 20 ms 取出并打印，打印行之前若有丢弃则先输出 `[dbg] i2c log dropped=<n>`。
-- `changes` 模式的比较在记录时完成：与上一条请求和响应完全相同且结果为 `OK` 的记录不入缓冲（R6.2）。
+- `changes` 模式的比较在记录时完成：忽略递增序号及其依赖 CRC 后，与上一条语义相同且结果为 `OK` 的记录不入缓冲（R6.2）。
 
 ### 8.2 输出格式
 
@@ -444,7 +444,7 @@ config REMOTE_DBG_SIM
 ### 10.1 用法
 
 ```text
-python tools/uart_script.py SCRIPT [--port NAME=COMx ...] [--reset NAME]
+python tools/uart_script.py --script SCRIPT [--port NAME=COMx ...] [--reset NAME]
                            [--log build/uart-script.log] [--timeout 3]
 ```
 
@@ -529,3 +529,13 @@ expect-any "[dbg] OK" 1     # 在任一设备的输出中等待
 - `tap start 100` 重复 50 次，`DONE` 行中 `elapsed` 均在 80–120 ms 之间。
 - 控制台执行 `seq` 期间，取景帧率与不执行时相比下降不超过 5%。
 - `CONFIG_REMOTE_DBG_SIM=n` 构建中 `help` 不列出模拟命令，执行 `atom sim on` 返回 `ERR unknown command`。
+
+## LCD 本地模拟实际接入（2026-10-03）
+
+`common/atom_sim` 构造完整响应字节，复用 `atom_receiver` / CRC 和现有纯 C `ds4_events` 队列（从 ATOM 模块编译同一源文件），经原有 `atom_client_response` 输入 HELLO / POLL / ACK / boot_id / gap。`main/lcd_sim` 保存 RAM 模型和 10ms 播放器；mutex 同步协议快照，UART 解析、播放器和通信任务不直接访问彼此的输入状态机。
+
+atom_link 每轮选择实际总线或本地模型，启用模拟时绕过物理 probe / transmit / receive。来源 epoch 改变先调用原有 input_offline，重置客户端和事件基线，防止 UART 两次快速切换被单一 bool 漏掉；来源切换与主动离线使用任务通知打断重连等待。版本与重启走原客户端分支，三次失败仍按同一规则断开。主动 offline 按探测离线处理，不伪造版本不匹配。恢复实际链路重新 HELLO。I²C 统计继续只计物理帧。
+
+关闭 `CONFIG_REMOTE_DBG_SIM` 后只保留空入口，不编译 atom_sim、pad_cmd / pad_player 及本地事件队列。现有 POLL 不传左摇杆，因此只保留解析 / 本地状态，暂不宣称云台输入实现。
+
+异步 token 当前统一由 debug_console 的原子计数器生成，Wi-Fi / UI 偏好 / 手柄动作 / 原始请求共享同一个设备内的编号空间；不同端口按设备隔离。避免触摸板动作引发 UI 完成日志时使用与 pad 同号，误导脚本的 token 匹配。

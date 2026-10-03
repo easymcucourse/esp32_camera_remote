@@ -2,7 +2,7 @@
 
 本文是 [手柄控制方案](../request/gamepad-request.md) 在 LCD 端的实现设计：如何把 ATOM 上报的手柄快照和按键事件转换成相机命令和界面操作，并保证拍照、录像、变焦在任何异常下都能安全释放。ATOM 端的云台处理见 [BLE 云台控制设计](gimbal-design.md)，链路协议见 [I²C 通信协议](i2c-protocol-design.md)。
 
-> 工作区已接入 gamepad_input、camera_actions、setting_control 和 camera_menu：Y 曝光 Mode、X 对焦模式、肩键变焦 / 条件 MF、扳机与七项参数菜单；当前统一 28 项主机回归通过。新映射与菜单已有烧录记录；相机效果仍待验收。镜头类型保持未知，MF 替代未启用。两端 I²C v2 已烧录；对焦框与其他未完成项仍为目标设计。菜单细节见 [设置菜单设计](camera-menu-design.md)。
+> 工作区已接入 gamepad_input、camera_actions、setting_control 和 camera_menu：Y 曝光 Mode、X 对焦模式、肩键变焦 / 条件 MF、扳机与七项参数菜单；当前统一 49 项主机回归通过。新映射与菜单已有烧录记录；相机效果仍待验收。镜头类型保持未知，MF 替代未启用。两端 I²C v2 已烧录；对焦框与其他未完成项仍为目标设计。菜单细节见 [设置菜单设计](camera-menu-design.md)。
 
 ## 1. 现状
 

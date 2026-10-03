@@ -6,7 +6,7 @@
 typedef struct { uint8_t guid[32],peer[32]; size_t guid_size,peer_size; } store_t;
 static store_t store, staged;
 static unsigned random_calls, commits;
-static bool fail_commit, fail_open;
+static bool fail_commit, fail_open, fail_erase;
 int nvs_open(const char *name,int mode,nvs_handle_t *out) {
     assert(!strcmp(name,"sony_remote") && mode==NVS_READWRITE);
     if (fail_open) return 9;
@@ -27,7 +27,7 @@ int nvs_set_blob(nvs_handle_t handle,const char *key,const void *data,size_t siz
     return ESP_OK;
 }
 int nvs_commit(nvs_handle_t handle) { assert(handle==1);++commits;if(fail_commit)return 9;store=staged;return ESP_OK; }
-int nvs_erase_all(nvs_handle_t handle) { assert(handle==1);memset(&staged,0,sizeof(staged));return ESP_OK; }
+int nvs_erase_all(nvs_handle_t handle) { assert(handle==1);if(fail_erase)return 9;memset(&staged,0,sizeof(staged));return ESP_OK; }
 void nvs_close(nvs_handle_t handle) { assert(handle==1); }
 void esp_fill_random(void *data,size_t size) { ++random_calls;memset(data,0x40+random_calls,size); }
 int main(void) {
@@ -49,6 +49,11 @@ int main(void) {
     store.peer_size=23;assert(!camera_identity_load(&b));
     store.peer_size=22;store.guid_size=15;assert(!camera_identity_load(&b));
     store.guid_size=0;before=commits;assert(!camera_identity_load(&b)&&commits==before);
+    fail_erase=true;before=commits;
+    assert(!camera_identity_forget()&&commits==before&&store.peer_size==22);
+    fail_erase=false;fail_commit=true;
+    assert(!camera_identity_forget()&&store.peer_size==22);
+    fail_commit=false;
     assert(camera_identity_forget()&&!store.guid_size&&!store.peer_size);
     assert(camera_identity_load(&b)&&random_calls==2&&!b.paired&&memcmp(a.guid,b.guid,16));
     fail_open=true;assert(!camera_identity_load(&b)&&!camera_identity_forget());

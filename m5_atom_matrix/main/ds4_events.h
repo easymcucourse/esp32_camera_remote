@@ -3,11 +3,13 @@
 #include <stdint.h>
 
 #define DS4_EVENT_CAPACITY 128
-typedef struct { uint32_t id, buttons; } ds4_event_t;
+typedef struct { uint32_t id, buttons; bool gap; } ds4_event_t;
 typedef struct {
     ds4_event_t entries[DS4_EVENT_CAPACITY];
     unsigned head, count;
     uint32_t next_id, dropped;
+    uint32_t last_buttons, gap_id, gap_dropped;
+    bool gap_pending;
 } ds4_events_t;
 
 // Caller supplies synchronization. Zero initialization creates an empty queue.

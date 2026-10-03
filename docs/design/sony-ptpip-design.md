@@ -93,7 +93,7 @@ WB “+2”已由用户识别为白平衡，但 AB/GM 编码到补偿数值的�
 
 ### 验证范围
 
-当前统一 CTest 28 项，覆盖连接 / 属性 / 写入 / 控制状态、两端 I²C / DS4 / 灯阵与热点；完整清单见 [测试文档](../development/testing.md#当前注册测试)。2026-10-01 的九项是历史基线。连接回归覆盖阻塞/部分收发取消、整笔与嵌套事务期限、TCP 超时及错误、拒绝后同会话成功取帧、缺 EndData、错事务号、ProbeRequest、属性变化事件、GUID-only 迁移、身份不匹配、NVS 保存失败和坏记录。3210 字节真实属性快照及全部截断点也已验证。固件已编译、烧录并完成连接实测，见烧录与连接测试记录；主机网络和 NVS 使用模拟接口，实机验收范围以记录为准。
+当前统一 CTest 31 项，覆盖连接 / 属性 / 写入 / 控制状态、两端 I²C / DS4 / 灯阵与热点；完整清单见 [测试文档](../development/testing.md#当前注册测试)。2026-10-01 的九项是历史基线。连接回归覆盖阻塞/部分收发取消、整笔与嵌套事务期限、TCP 超时及错误、拒绝后同会话成功取帧、缺 EndData、错事务号、ProbeRequest、属性变化事件、GUID-only 迁移、身份不匹配、NVS 保存失败和坏记录。3210 字节真实属性快照及全部截断点也已验证。固件已编译、烧录并完成连接实测，见烧录与连接测试记录；主机网络和 NVS 使用模拟接口，实机验收范围以记录为准。
 
 以下第 1–14 节是后续分层设计，保留目标接口、迁移步骤及待验证问题。
 
@@ -1134,6 +1134,8 @@ LCD 性能分析中的优化都在实现内部完成，接口不需要改：
 
 ### 11.7 恢复流程（P0）
 
+2026-10-03 已接入对应流程：`board_lcd_recover` 管理面板 / 帧缓冲，`board_7b_recover_display` 重置解码器和背光，字体缓存保留；恢复后绘制连接状态屏并等待下一帧，而非发布黑屏。最多三次失败后 app_main 占用 / 排空相机，在内部 RAM 栈软重启。`board_lcd` 和 `liveview_pipeline` 主机故障注入通过，真实 LCD 注入尚待验收。下述 `b7_panel` 名称为目标拆分接口。
+
 `b7_panel_recover()`：
 
 1. 关背光；
@@ -1169,7 +1171,7 @@ void ui_build_overlay(const camera_state_t *camera, const ui_peripherals_t *peri
 
 - 任务每 250ms 醒来一次，或被 `ui_presenter_notify` 唤醒。它比较 `camera_model.revision`、外设状态、布局和 FPS 读数，只有内容变化时才重新生成并调用显示接口。FPS 约每秒变一次，所以叠加层缓存约每秒重渲染一次。
 - 链路状态不是 `LiveView` 时调用 `show_status_screen`，否则调用 `set_overlay`。
-- 两种布局显示的内容与现在一致：预览布局 6 行（WIFI、FPS、CAM、FW、MODE、DS4），详细布局 15 行（标题加 14 项参数）。文字通过 `sony_format` 生成。
+- 两种布局显示的内容与现在一致：预览布局 8 行（相机电量、FOCUS、WIFI、FPS、CAM、FW、MODE、DS4），详细布局 16 行（顶部电量 / 对焦、参数与 WI-FI 入口）。文字通过 `sony_format` 生成。
 - 顺带修正清单中的界面文字：`Expend unit` 改为 `Expansion unit`。
 
 ### 11.9 测试替身：`display_fake`
@@ -1221,7 +1223,7 @@ display_t *display_fake_init(display_fake_t *fake);
 | `test_sony_props` | 2811 和 2661 字节样本均须正好走到末尾，且条目数为 93；历史样本当前值与 [抓包分析](../records/protocol-analysis.md) 一致；截断在每个字节处都返回 `TRUNCATED` 且不越界；未知类型 |
 | `test_sony_format` | 快门 BULB、1/x、x.xS、分数；EV 正负；ISO AUTO；未知枚举输出十六进制 |
 | `test_sony_liveview` | 偏移 136、160；缺 SOI；缺 EOI；偏移越界；事务 14/15 的第二字段含尾部空间；附加数据含伪 EOI 时不扩大 JPEG 范围 |
-| `test_ui_presenter` | 预览 6 行、详细 15 行的文字与现有界面一致；外设断开为 `BAD`；RSSI 低于 −75 为 `WARN`；内容不变时 `revision` 不变；超长 SSID 不越界 |
+| `test_ui_presenter` | 预览 8 行、详细 16 行的文字与现有界面一致；外设断开为 `BAD`；RSSI 低于 −75 为 `WARN`；内容不变时 `revision` 不变；超长 SSID 不越界 |
 
 会话层的事务状态机用假 transport 测试：把录制的字节流按随机长度切片喂给 `recv_all`，验证分包、粘包、ProbeRequest 穿插、事务号错误、Data 超长、未发 StartData 就收到 Data 等情况。为此 `ptpip_transport` 的收发函数要通过函数指针表注入，设备上直接绑定 lwIP 实现。
 

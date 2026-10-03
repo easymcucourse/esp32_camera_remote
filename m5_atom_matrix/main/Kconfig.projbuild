@@ -1,0 +1,12 @@
+menu "Development console"
+config REMOTE_DBG_SIM
+    bool "UART debug: simulation commands"
+    default y
+    help
+        RAM-only simulated input. Disable in production firmware.
+config APP_DS4_DEBUG_LOG
+    bool "Start DS4 host logs at DEBUG"
+    default n
+    help
+        Also controllable for this boot with UART log ds4_host debug.
+endmenu
