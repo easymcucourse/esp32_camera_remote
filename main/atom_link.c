@@ -120,6 +120,11 @@ static void atom_link_task(void *arg)
             debug_pad = (gamepad_snapshot_t){.battery = 255}; publish_status(&client, &debug_pad);
             link_wait(client.mismatch ? 5000 : 1000); continue;
         }
+        unsigned mode=ui_preferences_pad();
+        if (client.input_mode!=mode) {
+            input_offline();discard_cached=true;event_buttons=last_buttons=0;
+            client.online=false;client.ack_id=0;client.failures=0;client.mismatch=false;client.input_mode=mode;
+        }
         atom_request_t request = atom_client_request(&client);
         uint8_t command[ATOM_REQUEST_SIZE], reply[ATOM_RESPONSE_MAX];
         atom_encode_request(command, request);

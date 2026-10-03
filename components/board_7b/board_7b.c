@@ -32,7 +32,6 @@ static uint16_t *jpeg_pixels;
 static unsigned last_width, last_height;
 static atomic_bool display_failed;
 static jpeg_dec_handle_t fast_decoder;
-static jpeg_dec_handle_t scaled_decoder;
 static int64_t fps_window_start, fps_last_frame;
 static unsigned fps_intervals;
 static atomic_uint fps_tenths;
@@ -181,8 +180,7 @@ static esp_err_t recover_display(void)
     esp_err_t backlight = write_register(0x03, outputs);
     if (backlight != ESP_OK) ESP_LOGW(TAG, "Recovery backlight off: %s", esp_err_to_name(backlight));
     if (fast_decoder) jpeg_dec_close(fast_decoder);
-    if (scaled_decoder) jpeg_dec_close(scaled_decoder);
-    fast_decoder = scaled_decoder = NULL;
+    fast_decoder = NULL;
     heap_caps_free(jpeg_work); jpeg_work = NULL; jpeg_pixels = NULL;
     last_width = last_height = 0;
     fps_last_frame = fps_window_start = 0;
@@ -835,6 +833,22 @@ static void draw_settings_panel(uint16_t *pixels)
     draw_capture_status(pixels);
 }
 
+static void draw_maintenance_notice(uint16_t *pixels)
+{
+    char text[128];
+    portENTER_CRITICAL(&wifi_info_mux);memcpy(text,maint_text,sizeof(text));portEXIT_CRITICAL(&wifi_info_mux);
+    const char prefix[]="MAINTENANCE OFF:";
+    if (strncmp(text,prefix,sizeof(prefix)-1)) return;
+    /* The first JPEG replaces the connection screen. Keep the auto-close
+     * notice visible on that image too, until maint_ctl expires it. */
+    const int top=BOARD_LCD_HEIGHT-52;
+    memset(pixels+top*BOARD_LCD_WIDTH,0,52*BOARD_LCD_WIDTH*sizeof(uint16_t));
+    ui_fonts_draw(pixels,BOARD_LCD_WIDTH,BOARD_LCD_HEIGHT,12,top+4,
+                  "MAINTENANCE OFF: camera connected",16,0xffe0,true,BOARD_LCD_WIDTH-12);
+    ui_fonts_draw(pixels,BOARD_LCD_WIDTH,BOARD_LCD_HEIGHT,12,top+26,
+                  "Disconnect phone from Wi-Fi.",16,0xffff,true,BOARD_LCD_WIDTH-12);
+}
+
 static void record_displayed_frame(void)
 {
     int64_t now = esp_timer_get_time();
@@ -928,6 +942,8 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
                 last_height = decoder.height;
             }
             bool settings = atomic_load(&settings_mode);
+            bool thumbnail = settings && decoder.width == 1024 && decoder.height == 576;
+            if (thumbnail) ctx.x_offset = ctx.y_offset = 0;
             /* A native full-width decode replaces every pixel in its image
              * rectangle, including last frame's overlay. Clear only the black
              * bands, so old text outside the decoded rectangle cannot persist.
@@ -942,55 +958,10 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
             } else memset(jpeg_pixels, 0, BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * sizeof(uint16_t));
             int64_t cleared = esp_timer_get_time();
             int64_t stride_us = 0;
-            if (settings && decoder.width == 1024 && decoder.height == 576) {
-                if (fast_decoder) { jpeg_dec_close(fast_decoder); fast_decoder = NULL; }
-                // Decode a 3/4-size thumbnail. 768x432 preserves aspect ratio,
-                // and both dimensions satisfy the decoder's 8-pixel rule.
-                if (!scaled_decoder) {
-                    jpeg_dec_config_t scaled_config = DEFAULT_JPEG_DEC_CONFIG();
-                    scaled_config.output_type = JPEG_PIXEL_FORMAT_RGB565_LE;
-                    scaled_config.scale.width = 768;
-                    scaled_config.scale.height = 432;
-                    if (jpeg_dec_open(&scaled_config, &scaled_decoder) != JPEG_ERR_OK) {
-                        xSemaphoreGive(display_mutex);
-                        return ESP_ERR_NO_MEM;
-                    }
-                }
-                jpeg_dec_io_t io = {
-                    .inbuf = (uint8_t *)jpeg,
-                    .inbuf_len = (int)length,
-                    .outbuf = (uint8_t *)jpeg_pixels,
-                };
-                jpeg_dec_header_info_t info = {0};
-                int output_length = 0;
-                jpeg_error_t scaled_result = jpeg_dec_parse_header(scaled_decoder, &io, &info);
-                if (scaled_result == JPEG_ERR_OK)
-                    scaled_result = jpeg_dec_get_outbuf_len(scaled_decoder, &output_length);
-                if (scaled_result != JPEG_ERR_OK || output_length != 768 * 432 * (int)sizeof(uint16_t)) {
-                    ESP_LOGE(TAG, "Scaled JPEG setup failed: result=%d bytes=%d", scaled_result, output_length);
-                    if (scaled_result == JPEG_ERR_NO_MEM) err = ESP_ERR_NO_MEM;
-                    goto finish_decode;
-                }
-                scaled_result = jpeg_dec_process(scaled_decoder, &io);
-                if (scaled_result != JPEG_ERR_OK) {
-                    ESP_LOGE(TAG, "Scaled JPEG decode failed: %d", scaled_result);
-                    if (scaled_result == JPEG_ERR_NO_MEM) err = ESP_ERR_NO_MEM;
-                    goto finish_decode;
-                }
-                // Decoder output is tightly packed. Expand its stride in place,
-                // bottom-up, leaving the lower strip for additional settings.
-                int64_t stride_start = esp_timer_get_time();
-                if (!image_stride_expand(jpeg_pixels, BOARD_LCD_WIDTH*BOARD_LCD_HEIGHT, 768, 432, BOARD_LCD_WIDTH))
-                    goto finish_decode;
-                for (int y = 432; y < BOARD_LCD_HEIGHT; ++y)
-                    memset(jpeg_pixels + y * BOARD_LCD_WIDTH, 0, 768 * sizeof(uint16_t));
-                stride_us = esp_timer_get_time() - stride_start;
-                result = JDR_OK;
-            // The camera's 1024-wide image has the same stride as the LCD.
-            // Decode RGB565 directly into the aligned back framebuffer.
-            } else if (scale == 0 && width == BOARD_LCD_WIDTH &&
+            // The same decoder handles both modes; scaling inside the JPEG
+            // library needs an extra large buffer that cannot fit liveview RAM.
+            if (scale == 0 && width == BOARD_LCD_WIDTH &&
                 (((uintptr_t)(jpeg_pixels + ctx.y_offset * BOARD_LCD_WIDTH)) & 15) == 0) {
-                if (scaled_decoder) { jpeg_dec_close(scaled_decoder); scaled_decoder = NULL; }
                 if (!fast_decoder) {
                     jpeg_dec_config_t fast_config = DEFAULT_JPEG_DEC_CONFIG();
                     fast_config.output_type = JPEG_PIXEL_FORMAT_RGB565_LE;
@@ -1023,15 +994,25 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
                 result = JDR_OK;
             } else {
                 if (fast_decoder) jpeg_dec_close(fast_decoder);
-                if (scaled_decoder) jpeg_dec_close(scaled_decoder);
-                fast_decoder = scaled_decoder = NULL;
+                fast_decoder = NULL;
                 result = jd_decomp(&decoder, jpeg_output, scale);
             }
             if (result == JDR_OK) {
+                if (thumbnail) {
+                    int64_t shrink_start = esp_timer_get_time();
+                    if (!image_shrink(jpeg_pixels, BOARD_LCD_WIDTH*BOARD_LCD_HEIGHT,
+                                      1024, 576, BOARD_LCD_WIDTH, 768, 432)) goto finish_decode;
+                    for (unsigned y=0; y<432; ++y)
+                        memset(jpeg_pixels+y*BOARD_LCD_WIDTH+768,0,(BOARD_LCD_WIDTH-768)*sizeof(uint16_t));
+                    memset(jpeg_pixels+432*BOARD_LCD_WIDTH,0,
+                           (BOARD_LCD_HEIGHT-432)*BOARD_LCD_WIDTH*sizeof(uint16_t));
+                    stride_us=esp_timer_get_time()-shrink_start;
+                }
                 int64_t decoded = esp_timer_get_time();
                 if (esp_timer_get_time() - fps_last_frame > 2000000) fps_tenths = 0;
                 if (settings) draw_settings_panel(jpeg_pixels);
                 else draw_preview_status(jpeg_pixels);
+                draw_maintenance_notice(jpeg_pixels);
                 int64_t drawn = esp_timer_get_time();
                 showing_connection = false;
                 err = publish_frame(jpeg_pixels);
@@ -1055,8 +1036,7 @@ finish_decode:
     if (err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_NO_MEM) {
         /* A decoder that stopped mid-scan must not poison the next good frame. */
         if (fast_decoder) jpeg_dec_close(fast_decoder);
-        if (scaled_decoder) jpeg_dec_close(scaled_decoder);
-        fast_decoder = scaled_decoder = NULL;
+        fast_decoder = NULL;
     }
     xSemaphoreGive(display_mutex);
     return err;

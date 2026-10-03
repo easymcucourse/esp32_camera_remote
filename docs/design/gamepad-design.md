@@ -2,7 +2,7 @@
 
 本文是 [手柄控制方案](../request/gamepad-request.md) 在 LCD 端的实现设计：如何把 ATOM 上报的手柄快照和按键事件转换成相机命令和界面操作，并保证拍照、录像、变焦在任何异常下都能安全释放。ATOM 端的云台处理见 [BLE 云台控制设计](gimbal-design.md)，链路协议见 [I²C 通信协议](i2c-protocol-design.md)。
 
-> 工作区已接入 gamepad_input、camera_actions、setting_control 和 camera_menu：Y 曝光 Mode、X 对焦模式、肩键变焦 / 条件 MF、扳机与七项参数菜单；当前统一 49 项主机回归通过。新映射与菜单已有烧录记录；相机效果仍待验收。镜头类型保持未知，MF 替代未启用。两端 I²C v2 已烧录；对焦框与其他未完成项仍为目标设计。菜单细节见 [设置菜单设计](camera-menu-design.md)。
+> 工作区已接入 gamepad_input、camera_actions、setting_control 和 camera_menu：Y 曝光 Mode、X 对焦模式、肩键变焦 / 条件 MF、扳机与七项参数菜单；当前统一 54 项主机回归通过。新映射与菜单已有烧录记录；相机效果仍待验收。用户于 2026-10-03 确认当前电动变焦镜头，运行时采用 POWER_ZOOM；MF 替代未启用。两端 I²C v2 已烧录；对焦框与其他未完成项仍为目标设计。菜单细节见 [设置菜单设计](camera-menu-design.md)。
 
 ## 1. 现状
 
@@ -99,7 +99,7 @@ stateDiagram-v2
 
 | 输入 | 处理 |
 | --- | --- |
-| LB / RB | Tele / Wide；确认非电动变焦镜头且 MF 时近 / 远对焦。两键同按立即停止并锁定到均松开 |
+| LB / RB | Wide / Tele；确认非电动变焦镜头且 MF 时近 / 远对焦。两键同按立即停止并锁定到均松开 |
 | A / B | SETTINGS / 热点页确认与返回，已接入 |
 | Select（规划） | 仅当 `camera_model` 报告 MF 时切换对焦框开关 |
 | 右摇杆（规划） | 对焦框开启时移动绿框：死区 ±12，速度与偏移量成正比；R3 按下期间不计入 |
@@ -171,3 +171,17 @@ typedef enum { CMD_PRIO_HIGH, CMD_PRIO_NORMAL } camera_cmd_prio_t;
 2. 已接入 S1/S2、录像、变焦协议写入与目标确认，待实机验证方向、释放和状态。
 3. 补齐可信镜头类型识别，验证非电动变焦镜头 MF 分支，再验收菜单和对焦框。
 4. I²C v2 已接入 boot_id、gap 和 link_state；继续验证单端重启、丢事件与链路稳定性。
+
+## Ultimate 2 BLE 接入（2026-10-03）
+
+ATOM 使用独立 GATTC 客户端，以免覆盖 Classic DS4 HID 回调。扫描选择唯一手柄候选，认证和服务发现均完成后验证 HID 服务，标准 Battery Level 仅用于 Matrix 第二行。实机读到 88% 和后续 86%。
+
+`ultimate2_report` 仅接受本机实测的 113 字节报告描述，且服务中必须恰好有一个可通知报告特征；该描述只有 Input ID 1（264 位 / 33 字节），ID 5 是 Output。因此通知数据不含报告 ID，也无需通过长度在多个输入 ID 中猜测。未知描述或多输入特征保持电量功能，拒绝输入控制。描述含四轴、Accelerator / Brake、24 个按钮和 23 字节厂商数据；厂商尾部不用于相机动作。实体 A/B/X/Y 及扳机字母映射仍需按键验证，不能从名称或报告描述推定字母。
+
+共享 `pad_publish` 在显式 SIM 之外优先采用有效 DS4 输入，DS4 离线才采用 BLE；来源切换清缓存并递增 I²C 输入代数，当前持键仅同步为基线。BLE 断连或一秒没有可解析报告时发布离线，LCD 使用既有来源释放 / 重新就绪逻辑。Matrix 第一行读取独立 Classic 状态，不使用聚合输入的电量；LCD 不新增手柄电量。
+
+### 当前设备声明与来源选择（2026-10-03）
+
+当前镜头类型来自用户确认，并非自动识别。POWER_ZOOM 下 L1/R1 请求 Wide/Tele，即使 ZoomEnableStatus 缺失或为 0 也允许提交，实际执行由相机响应决定；松开、同按、断连、切换来源均停止。更换镜头时需重新确认类型，不能沿用该声明推断新镜头。
+
+维护页 /api/controller 的 type=ds|xbox 保存到 ui_prefs/pad，默认及恢复出厂为 DS。atom_link 发现类型变化先离线释放，随后以 HELLO 参数字节 2 传递类型；ATOM 清空旧事件、增加来源代数并选择 DS4 或 BLE。调试 SIM 显式覆盖该选择，退出后恢复所选来源。

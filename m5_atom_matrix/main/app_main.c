@@ -45,7 +45,7 @@ void app_main(void)
         TickType_t ticks = xTaskGetTickCount();
         if (ds4.connected && (ds4.buttons != last_ds4.buttons || ticks - last_log >= pdMS_TO_TICKS(1000))) {
             ESP_LOGI(TAG, "%s buttons=0x%05lx L=(%d,%d) R=(%d,%d) LT=%u RT=%u battery=%u",
-                ds4_host_sim_active()?"SIM DS4":"DS4", (unsigned long)ds4.buttons, ds4.lx, ds4.ly, ds4.rx, ds4.ry, ds4.l2, ds4.r2, ds4.battery);
+                ds4_host_sim_active()?"SIM":"Gamepad", (unsigned long)ds4.buttons, ds4.lx, ds4.ly, ds4.rx, ds4.ry, ds4.l2, ds4.r2, ds4.battery);
             last_log = ticks;
         }
         last_ds4 = ds4;

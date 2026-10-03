@@ -9,6 +9,7 @@ static int64_t now, cancel_at;
 static bool ready;
 static unsigned bytes, closed;
 static int socket_error;
+static bool no_delay, reject_no_delay;
 static struct timeval configured={.tv_sec=5};
 int64_t esp_timer_get_time(void) { return now; }
 static bool cancel(void *context) { (void)context; return cancel_at>=0 && now>=cancel_at; }
@@ -25,7 +26,14 @@ int close(int fd) { assert(fd==3); ++closed;return 0; }
 uint16_t htons(uint16_t n) { return (uint16_t)(n<<8|n>>8); }
 int inet_pton(int f,const char *text,void *a) { (void)f;(void)a;return !strcmp(text,"192.168.4.9"); }
 int setsockopt(int fd,int level,int option,const void *data,socklen_t n) {
-    (void)fd;(void)level;(void)option;assert(n==sizeof(configured));memcpy(&configured,data,n);return 0;
+    (void)fd;
+    if (level==IPPROTO_TCP && option==TCP_NODELAY) {
+        assert(n==sizeof(int) && *(const int *)data==1);
+        if (reject_no_delay) return -1;
+        no_delay=true;return 0;
+    }
+    assert(level==SOL_SOCKET && (option==SO_RCVTIMEO || option==SO_SNDTIMEO));
+    assert(n==sizeof(configured));memcpy(&configured,data,n);return 0;
 }
 int getsockopt(int fd,int level,int option,void *data,socklen_t *n) {
     (void)fd;(void)level;(void)n;
@@ -37,7 +45,7 @@ int recv(int fd,void *data,size_t n,int flags) {
     (void)fd;(void)flags;size_t amount=n>2?2:n;memset(data,0x55,amount);bytes+=amount;return (int)amount;
 }
 int send(int fd,const void *data,size_t n,int flags) { (void)data;uint8_t scratch[2];return recv(fd,scratch,n>2?2:n,flags); }
-static void reset(void) { now=0;cancel_at=-1;ready=false;bytes=closed=0;socket_error=0;configured.tv_sec=5;configured.tv_usec=0;ptpip_set_cancel(cancel,NULL); }
+static void reset(void) { now=0;cancel_at=-1;ready=false;bytes=closed=0;socket_error=0;no_delay=reject_no_delay=false;configured.tv_sec=5;configured.tv_usec=0;ptpip_set_cancel(cancel,NULL); }
 int main(void) {
     uint8_t data[9];
     reset();ready=true;assert(ptpip_transfer(3,data,sizeof(data),false));assert(bytes==9);
@@ -52,7 +60,10 @@ int main(void) {
     assert(ptpip_last_status()==PTPIP_IO_CANCELLED && closed==1);
     reset();assert(ptpip_connect_timeout("192.168.4.9",15740,800)==-1);
     assert(ptpip_last_status()==PTPIP_IO_TIMEOUT && now==800000 && closed==1);
-    reset();ready=true;assert(ptpip_connect("192.168.4.9",15740)==3);assert(closed==0);
+    reset();ready=true;assert(ptpip_connect("192.168.4.9",15740)==3);assert(closed==0 && no_delay);
+    reset();ready=true;reject_no_delay=true;
+    assert(ptpip_connect("192.168.4.9",15740)==-1);
+    assert(ptpip_last_status()==PTPIP_IO_NETWORK && closed==1 && !no_delay);
     reset();ready=true;socket_error=1;assert(ptpip_connect("192.168.4.9",15740)==-1);
     assert(ptpip_last_status()==PTPIP_IO_NETWORK && closed==1);
     reset();assert(ptpip_connect("invalid",15740)==-1 && !closed);

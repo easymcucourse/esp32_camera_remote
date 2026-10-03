@@ -3,7 +3,7 @@
 
 typedef struct {
     uint32_t boot_id, ack_id, local_mask;
-    uint8_t seq, failures;
+    uint8_t seq, failures, input_mode;
     bool online, mismatch;
 } atom_client_t;
 typedef enum { ATOM_CLIENT_RETRY, ATOM_CLIENT_OFFLINE, ATOM_CLIENT_MISMATCH,

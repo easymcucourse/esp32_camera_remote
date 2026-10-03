@@ -4,6 +4,7 @@
 #include "atom_i2c.h"
 #include "matrix_status.h"
 #include "pad_console.h"
+#include "ble_gamepad.h"
 #include "i2c_debug.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -12,6 +13,7 @@
 
 static bool command(int argc, char **argv)
 {
+    if (ble_gamepad_command(argc,argv)) return true;
     if (i2c_debug_command(argc,argv)) return true;
     if (atom_i2c_debug_command(argc,argv)) return true;
     if (pad_console_command(argc,argv)) return true;
@@ -19,6 +21,7 @@ static bool command(int argc, char **argv)
     if (argc != 1) return false;
     if (!strcmp(argv[0], "help")) {
         debug_printf("[dbg] OK help: version; status; log <tag|*> <none|error|warn|info|debug|verbose>; i2c log on|off|changes; i2c stats [reset]\n");
+        debug_printf("[dbg] ble map: cached HID report descriptor (no device identity)\n");
 #if CONFIG_REMOTE_DBG_SIM
         debug_printf("[dbg] SIM i2c: req <9 hex bytes>; drop 0..10000; corrupt 0..10000; delay 0..200 (milliseconds)\n");
         debug_printf("[dbg] SIM led: test (toggle corners every 1s); off; fault bt|i2c|overflow on|off\n");
@@ -38,6 +41,8 @@ static bool command(int argc, char **argv)
         queued, (unsigned long)dropped, matrix.ble_pad, matrix.gimbal, matrix.boot,
         matrix.faults, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),ds4_host_sim_active());
     debug_printf("[dbg] led calibration=%d forced=0x%02x%s\n",calibration,forced,calibration || forced?" SIM":"");
+    debug_printf("[dbg] matrix battery ds=%u ble=%u gimbal=%u (255=unknown)\n",
+                 matrix.classic_battery,matrix.ble_battery,matrix.gimbal_battery);
     return true;
 }
 static void poll(void) { pad_console_poll(); atom_i2c_debug_poll(); i2c_debug_poll(); }

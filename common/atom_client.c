@@ -3,7 +3,7 @@
 atom_request_t atom_client_request(const atom_client_t *c)
 {
     return (atom_request_t){c->seq, c->online ? ATOM_CMD_POLL : ATOM_CMD_HELLO,
-        c->online ? c->ack_id : 0x0202};
+        c->online ? c->ack_id : 0x0202 | ((uint32_t)c->input_mode << 16)};
 }
 atom_client_result_t atom_client_failure(atom_client_t *c)
 {
@@ -32,7 +32,7 @@ atom_client_result_t atom_client_response(atom_client_t *c, const uint8_t *bytes
     if (!boot) return atom_client_failure(c);
     if (!c->online) {
         uint32_t mask = atom_read_le(p + 8, 3);
-        if (p[11] || !p[7] || !(p[6] & 8) || (mask & ~ATOM_BUTTON_MASK))
+        if (p[11] || !p[7] || !(p[6] & ATOM_FEATURE_INPUT_MODE) || !(p[6] & 8) || (mask & ~ATOM_BUTTON_MASK))
             return atom_client_failure(c);
         c->boot_id = boot; c->local_mask = mask; c->ack_id = 0;
         c->online = true; c->failures = 0; c->mismatch = false; ++c->seq;

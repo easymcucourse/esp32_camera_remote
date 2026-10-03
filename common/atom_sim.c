@@ -39,11 +39,11 @@ atom_sim_result_t atom_sim_transact(atom_sim_t *s, const uint8_t raw[ATOM_REQUES
     uint8_t payload[ATOM_POLL_SIZE]={0}, length=0;
     if (status==ATOM_OK) {
         if (request.cmd==ATOM_CMD_HELLO) {
-            if (request.param&0xffff0000 || (request.param&255)>2 || ((request.param>>8)&255)<2)
+            if (request.param&0xfffe0000 || (request.param&255)>2 || ((request.param>>8)&255)<2)
                 status=ATOM_BAD_VERSION;
             else {
                 atom_write_le(payload,s->boot_id,4); payload[4]=s->version;
-                payload[6]=9; payload[7]=DS4_EVENT_CAPACITY;
+                payload[6]=9|ATOM_FEATURE_INPUT_MODE; payload[7]=DS4_EVENT_CAPACITY;
                 atom_write_le(payload+8,ATOM_LOCAL_MASK,3); length=ATOM_HELLO_SIZE;
             }
         } else if (request.cmd==ATOM_CMD_POLL) {

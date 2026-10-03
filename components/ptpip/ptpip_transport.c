@@ -111,6 +111,10 @@ int ptpip_connect_timeout(const char *address_text, uint16_t port, unsigned time
     socklen_t size = sizeof(error);
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) < 0 || error) goto fail;
     if (cancelled()) { last_status = PTPIP_IO_CANCELLED; goto fail; }
+    /* Command/event traffic uses short PTP/IP packets. Do not hold a command
+     * waiting to coalesce it with a later packet or a delayed acknowledgement. */
+    int no_delay = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) < 0) goto fail;
     /* Remain nonblocking: select slices bound stop latency during all transfers. */
     if (!ptpip_timeout_set(fd, 5)) goto fail;
     return fd;

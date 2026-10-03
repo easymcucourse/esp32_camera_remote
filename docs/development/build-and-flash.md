@@ -28,6 +28,18 @@ idf.py -p COM8 flash monitor
 - 本地 `sdkconfig` 不提交。已有配置需用 `idf.py menuconfig` 修改；若要重新采用默认配置，先备份本地 `sdkconfig`，移开后重新生成。仅执行 `reconfigure` 不会覆盖已有配置值。
 - 国家码由 `main/Kconfig.projbuild` 的 `APP_WIFI_COUNTRY` 设置，默认 `JP`。
 
+## LCD 兼容配置
+
+新增 `sdkconfig.stable.defaults`：Flash 与 Octal PSRAM 均为 80MHz。默认 120MHz 实验配置保留；兼容配置使用独立构建目录，避免覆盖现有 sdkconfig。构建通过不证明不同板卡、温度下的长期稳定性。
+
+```powershell
+./tools/idf.ps1 build -Profile stable
+# 激活 IDF 后执行便携 CI 入口
+python tools/ci_build.py lcd debug --profile stable
+```
+
+包装脚本输出到 `build/stable`，CI 入口输出到 `build/ci-lcd-debug-stable`；后续 size / monitor / flash 使用相同 profile。完整 USB flash 仍会初始化 OTA 元数据，已有设备应遵循前述更新边界。已有缓存配置不被 defaults 自动覆盖，CI 检查兼容配置实际频率。ATOM 不接受 stable profile。
+
 ## Windows 包装脚本
 
 脚本设置 `IDF_PATH`、加载 `export.ps1`，在 `-ProjectDirectory` 下执行 `idf.py -p <Port> <Action>`，失败返回错误。
@@ -36,6 +48,7 @@ idf.py -p COM8 flash monitor
 | --- | --- | --- |
 | `-Action`（第一个位置参数） | `build` | `build`、`flash`、`monitor`、`menuconfig`、`size`、`reconfigure` |
 | `-Port` | `COM8` | 串口，构建等动作也会传入 |
+| `-Profile` | `default` | LCD 可选 `stable`，使用独立配置 / 构建目录 |
 | `-ProjectDirectory` | 仓库根目录 | 可以指定 `./m5_atom_matrix` |
 | `-IdfPath` | 上表 SDK 路径 | 必须包含 `export.ps1` |
 | `-IdfPython` | 上表 Python 路径 | IDF Python 解释器 |
@@ -51,6 +64,8 @@ idf.py -p COM8 flash monitor
 每次调用只执行一个动作，不能连写 `flash monitor`。脚本没有烧录波特率参数；ATOM 的 115200 烧录按下节在已激活终端执行。
 
 ## ATOM 子工程（经典 ESP32）
+
+ATOM 已改为 Classic + BLE 双模，启用 GATTC；不能沿用旧的 BR/EDR-only sdkconfig。备份并移开旧配置后从 defaults 重新生成，CI 同样检查双模开关。BLE 电量客户端扫描带 gamepad / joystick 外观或支持名称的设备，连接后验证 HID 服务；一次扫描只有一个候选时连接，多个候选或列表溢出时不盲选。读取标准 Battery Service 的 Battery Level，断线清除；完整 BLE 按键适配仍待实现。
 
 ```powershell
 cd m5_atom_matrix
@@ -81,7 +96,7 @@ cmake --build build/host -j 4
 ctest --test-dir build/host --output-on-failure
 ```
 
-其他环境选择已安装的 CMake generator；同一个构建目录不混用 generator。统一 CTest 当前有 49 项，包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
+其他环境选择已安装的 CMake generator；同一个构建目录不混用 generator。统一 CTest 当前有 52 项，包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
 
 合成输入在测试源码中；四份脱敏属性裁剪样本位于 [fixtures](../../tests/host/fixtures/README.md)，由属性提取工具生成，不包含原始网络包。主机回归不证明真实 NVS、射频、相机写入或界面视觉效果。
 

@@ -83,18 +83,18 @@ int main(void)
 
     /* Zoom keeps running until release and locks on simultaneous shoulders. */
     start(); caps.mf = true; snapshot(0, 0, 1); event(PAD_L1, 2);
-    expect(0, PAD_ACTION_ZOOM, 1); snapshot(0, 0, 900); assert(count == 1);
+    expect(0, PAD_ACTION_ZOOM, -1); snapshot(0, 0, 900); assert(count == 1);
     event(PAD_SHOULDERS, 901); expect(1, PAD_ACTION_ZOOM, 0);
     event(PAD_R1, 902); snapshot(0, 0, 1500); assert(count == 2);
-    event(0, 1501); event(PAD_R1, 1502); expect(2, PAD_ACTION_ZOOM, -1);
+    event(0, 1501); event(PAD_R1, 1502); expect(2, PAD_ACTION_ZOOM, 1);
     event(0, 1503); expect(3, PAD_ACTION_ZOOM, 0);
 
     /* X stops a held shoulder and requires a fresh shoulder press. */
     start(); event(PAD_L1, 1); event(PAD_L1 | PAD_X, 2);
-    expect(0, PAD_ACTION_ZOOM, 1); expect(1, PAD_ACTION_ZOOM, 0);
+    expect(0, PAD_ACTION_ZOOM, -1); expect(1, PAD_ACTION_ZOOM, 0);
     expect(2, PAD_ACTION_FOCUS_MODE_NEXT, 1);
     snapshot(0, 0, 1000); event(PAD_L1, 1001); assert(count == 3);
-    event(0, 1002); event(PAD_L1, 1003); expect(3, PAD_ACTION_ZOOM, 1);
+    event(0, 1002); event(PAD_L1, 1003); expect(3, PAD_ACTION_ZOOM, -1);
 
     /* Non-power-zoom MF wins even when digital zoom is available. */
     start(); caps.lens = PAD_LENS_NON_POWER_ZOOM; caps.mf = true;
@@ -105,7 +105,7 @@ int main(void)
     snapshot(0, 0, 10001); assert(count == 3);
     event(0, 10002); event(PAD_R1, 10003); expect(3, PAD_ACTION_MF_STEP, -1);
     caps.mf = false; snapshot(0, 0, 10004); event(PAD_R1, 10005); assert(count == 4);
-    event(0, 10006); event(PAD_R1, 10007); expect(4, PAD_ACTION_ZOOM, -1);
+    event(0, 10006); event(PAD_R1, 10007); expect(4, PAD_ACTION_ZOOM, 1);
     caps.zoom_enabled = false; snapshot(0, 0, 10008); expect(5, PAD_ACTION_ZOOM, 0);
     event(0, 10009); event(PAD_L1, 10010); assert(count == 6);
 
@@ -114,6 +114,14 @@ int main(void)
     snapshot(0, 0, 0); event(PAD_L1, 1); assert(count == 0);
     caps.lens = PAD_LENS_NON_POWER_ZOOM; caps.mf_known = false;
     event(0, 2); event(PAD_R1, 3); assert(count == 0);
+
+    /* Confirmed PZ still uses zoom when the separate enable status is absent
+     * or disabled; it must never become MF on this lens. Releases remain zero. */
+    start();caps.zoom_known=false;caps.zoom_enabled=false;caps.mf=true;
+    snapshot(0,0,0);event(PAD_L1,1);expect(0,PAD_ACTION_ZOOM,-1);
+    event(0,2);expect(1,PAD_ACTION_ZOOM,0);
+    caps.zoom_known=true;snapshot(0,0,3);event(PAD_R1,4);expect(2,PAD_ACTION_ZOOM,1);
+    gamepad_input_offline(&s);expect(3,PAD_ACTION_RELEASE_ALL,0);
 
     /* Gap discards all pending effects, synchronizes held keys without edges. */
     start(); pad.buttons = PAD_X | PAD_Y | PAD_L1;

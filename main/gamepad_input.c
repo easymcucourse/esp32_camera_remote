@@ -38,7 +38,7 @@ static unsigned shoulder_mode(const gamepad_caps_t *caps)
 {
     if (!caps->session) return SHOULDER_NONE;
     if (caps->mf_known && caps->mf && caps->lens == PAD_LENS_NON_POWER_ZOOM) return SHOULDER_FOCUS;
-    if (caps->zoom_known && caps->zoom_enabled) return SHOULDER_ZOOM;
+    if (gamepad_zoom_available(caps)) return SHOULDER_ZOOM;
     return SHOULDER_NONE;
 }
 static void stop_shoulders(gamepad_input_t *s)
@@ -123,6 +123,7 @@ static void shoulders(gamepad_input_t *s, uint32_t buttons, bool event, uint32_t
     }
     if (!s->shoulder_armed || !mode) return;
     int direction = keys == PAD_L1 ? 1 : -1;
+    if (mode == SHOULDER_ZOOM) direction = -direction; /* R1 Tele, L1 Wide; MF retains near/far. */
     if (!s->held_shoulder) {
         if (!event) return; /* Snapshots cannot synthesize a press edge. */
         s->held_shoulder = keys;

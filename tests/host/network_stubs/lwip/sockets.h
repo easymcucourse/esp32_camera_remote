@@ -9,6 +9,7 @@ typedef struct { unsigned bits; } fd_set;
 #define AF_INET 2
 #define SOCK_STREAM 1
 #define IPPROTO_TCP 6
+#define TCP_NODELAY 1
 #define SOL_SOCKET 1
 #define SO_RCVTIMEO 2
 #define SO_SNDTIMEO 3

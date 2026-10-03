@@ -263,7 +263,7 @@ sequenceDiagram
 
 启用 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`。新固件第一次启动时处于 `ESP_OTA_IMG_PENDING_VERIFY` 状态，若在确认之前复位，引导程序下次启动时回到旧分区。
 
-`maint_ota_self_test_start()` 在 `app_main` 末尾调用，满足以下全部条件后调用 `esp_ota_mark_app_valid_cancel_rollback()`：
+`maint_ota_startup_ready()` 在 `app_main` 末尾调用，满足以下全部条件后调用 `esp_ota_mark_app_valid_cancel_rollback()`：
 
 - `board_7b_init()` 成功，连接页已显示；
 - `wifi_ap_start()` 成功，收到 `WIFI_EVENT_AP_START`；
@@ -272,7 +272,9 @@ sequenceDiagram
 
 不把“相机已连接”或“ATOM 在线”作为条件：现场可能没有相机或 ATOM，不能因此回退。
 
-自检期间若检测到上述条件失败，调用 `esp_ota_mark_app_invalid_rollback_and_reboot()` 立即回退。回退后启动日志输出 `OTA ROLLBACK: running previous firmware <version>`，维护页面的 `/api/info` 中 `last_ota` 字段显示 `rolled_back`。
+堆检查失败立即请求回退；满 60 秒时 AP netif 缺失或未启动也请求回退，避免永久停在待确认状态。LCD 致命故障沿用应用的关闭维护 / 排空 / 重启路径。确认 API 返回失败时同样请求回退，回退 API 返回错误则记录并重启，交由引导程序检查分区状态，不视为成功回退。启动日志包含 `Boot running=... status=...`；另一个 OTA 槽为 `ABORTED` 或 `INVALID` 时，`/api/info` 的 `last_ota` 显示 `rolled_back`。相机与 ATOM 是否连接不影响确认。
+
+维护操作错误与相机连接导致的自动关闭提示保留三秒后清除；到期计时支持毫秒时钟回绕，不能被控制任务的下一轮刷新立即覆盖。
 
 ### 7.4 镜像签名（后续）
 
@@ -367,3 +369,7 @@ sequenceDiagram
 - 页面内置确定性 gzip，端口 80 / priority 3 / stack 6144 / sockets 3。当前接口为 GET /、POST /api/login、POST /api/logout、GET /api/info、POST /api/maint/exit；JSON 上限 512 字节，认证失败 401、锁定 429。
 - 开发 maint probe 通过设备 AP 本地地址的 TCP / HTTP 执行回环审计，不通过 Wi-Fi 空口；生产关闭 REMOTE_DBG_SIM 时移除探测任务。手机实际访问与网页视觉仍待验收。
 - 自动关闭的 10 分钟实机窗口、60 秒锁定实机窗口、相机在线互斥 / 恢复、关闭提示 3 秒消失及 hand-held 入口尚待补齐 / 验证。设备信息只是基础网页，热点 / OTA 等继续实施，不降低原需求。
+
+### OTA 菜单手柄设置（2026-10-03）
+
+OTA 网页区包含手柄选择表单。GET /api/controller 返回 {"type":"ds"} 或 {"type":"xbox"}；POST 只接受单字段相同结构，拒绝重复、未知字段和其他值（400），未认证 401，上传或关闭中 409，保存失败 500。成功写入 NVS 后返回已保存值，输入任务异步释放和握手。默认 DS，恢复出厂清回 DS，普通重启保留。生产与调试共用接口；maint probe controller 仅调试固件保留，用真实 TCP 回环检查认证、非法数据、保存与读回并恢复原选择。

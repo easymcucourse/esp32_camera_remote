@@ -10,6 +10,8 @@
 #include "ui_overlay.h"
 #include "maint_mode.h"
 #include "maint_probe.h"
+#include "maint_ota.h"
+#include "esp_ota_ops.h"
 #include "display_bench.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -49,7 +51,12 @@ static bool command(int argc, char **argv)
             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),atom.sim);
         debug_printf("[dbg] wifi default_password=%d\n",board.default_password);
+        const esp_partition_t *running=esp_ota_get_running_partition();
+        debug_printf("[dbg] ota running=%s state=%s\n",running?running->label:"unknown",maint_ota_boot_status());
         debug_printf("[dbg] ui info=%s\n",ui_info_name(ui_preferences_level()));
+        gamepad_caps_t caps;camera_gamepad_caps(&caps);
+        debug_printf("[dbg] controls pad_type=%s lens=%u zoom_known=%d zoom_enabled=%d zoom_available=%d\n",
+            ui_preferences_pad()?"xbox":"ds",caps.lens,caps.zoom_known,caps.zoom_enabled,gamepad_zoom_available(&caps));
         debug_printf("[dbg] heap min_internal=%u min_psram=%u largest_internal=%u largest_psram=%u\n",
             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM),

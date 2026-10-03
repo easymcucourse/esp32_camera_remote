@@ -65,11 +65,12 @@ static void respond(atom_request_t request, atom_status_t status,const uint8_t *
         uint8_t payload[ATOM_POLL_SIZE] = {0}, length = 0;
         if (status == ATOM_OK) {
             if (request.cmd == ATOM_CMD_HELLO) {
-                if ((request.param & 0xffff0000) || (request.param & 0xff) > 2 ||
+                if ((request.param & 0xfffe0000) || (request.param & 0xff) > 2 ||
                     ((request.param >> 8) & 0xff) < 2) status = ATOM_BAD_VERSION;
                 else {
                     atom_write_le(payload, boot_id, 4);
-                    payload[4] = 2; payload[5] = 0; payload[6] = 1 | 8;
+                    payload[4] = 2; payload[5] = 0; payload[6] = 1 | 8 | ATOM_FEATURE_INPUT_MODE;
+                    ds4_host_set_input_mode((request.param >> 16) & 1);
                     payload[7] = DS4_EVENT_CAPACITY;
                     atom_write_le(payload + 8, ATOM_LOCAL_MASK, 3);
                     length = ATOM_HELLO_SIZE;

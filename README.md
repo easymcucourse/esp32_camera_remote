@@ -17,7 +17,7 @@
 - 工程源码全局使用 `-O2` 优化，Octal PSRAM 运行于 120MHz。
 - 串口暂停、恢复、配对诊断；通信失败后重试连接。
 
-当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 和云台的真实电量来源仍待接入。
+当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 标准电池服务已接入并读到 Ultimate 2 的 88%；云台真实电量来源仍待接入。
 
 最新显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**；实际相机取景窗口约 **2.8 FPS**，尚未达到性能目标。基准不代表网络取景或长期稳定性，详见 [显示实测](docs/records/display-profile-test-20261003.md)。
 
@@ -123,8 +123,8 @@ idf.py -p COM6 -b 115200 flash
 | 手柄按键 | 功能 |
 | --- | --- |
 | Start / Options | 切换设置与预览界面 |
-| L1 | Tele；确认非电动变焦镜头且 MF 时近对焦（+1） |
-| R1 | Wide；确认非电动变焦镜头且 MF 时远对焦（−1） |
+| L1 | Wide（拉远）；确认非电动变焦镜头且 MF 时近对焦（+1） |
+| R1 | Tele（拉近）；确认非电动变焦镜头且 MF 时远对焦（−1） |
 | X / 方块 | 按相机可选枚举循环切换对焦模式 |
 | Y / 三角 | 循环切换下一个曝光 Mode |
 | LT / RT | 半压合并为 S1；LT 全压请求录像目标，RT 全压 S2 拍照 |
@@ -158,7 +158,7 @@ components/board_7b/   LCD 初始化、JPEG 解码、帧同步、字体及参数
 components/ptpip/      PTP/IP 传输、报文、会话及标准数据集解析
 components/sony_camera/ Sony 扩展命令、属性及能力解析
 common/                两端共用 I²C 协议、LCD 链路状态机和串口参数解析
-tests/host/            49 项 CTest（含维护 JSON / 热点、UART / I²C 监视 / 手柄模拟、ATOM 测试和四份属性样本）
+tests/host/            54 项 CTest（含维护 JSON / 热点、UART / I²C 监视 / 手柄模拟、ATOM 测试和四份属性样本）
 m5_atom_matrix/        M5Stack ATOM Matrix 独立 ESP-IDF 子项目
 docs/                  硬件配置、协议分析和实测记录
 tools/                 编译、串口记录、自动连接测试、抓包与离线分析

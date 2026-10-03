@@ -22,7 +22,7 @@
 | 型号 | 蓝牙链路 | 输入兼容 | 状态 |
 | --- | --- | --- | --- |
 | DualShock 4 | 传统蓝牙 | Sony 兼容 | 当前固件 |
-| 八位堂猎户座 2 代 | BLE | Xbox 兼容 | 未实现 |
+| 八位堂 Ultimate 2（本机设备） | BLE | 实测 HID 描述限定适配 | 电量已读到；实体输入 / 相机控制待验收 |
 
 八位堂以 [PC 版产品页](https://www.8bitdo.cn/ultimate-2-wireless-controller/)为准，其蓝牙连接写明为低功耗蓝牙。同名 NS 版的蓝牙连接对象是 Switch，不属于上表。按键动作规则见[手柄控制方案](request/gamepad-request.md)。
 
@@ -223,3 +223,7 @@ docs/
 - 只抓本机与自有设备之间的通信，不使用监听模式（monitor mode）截取他人的无线通信。
 
 提交前检查 `git status`，确认没有通信记录。如果误提交或推送，从 Git 历史中彻底删除（如使用 `git filter-repo`）；已推送到公开仓库的内容视为已泄露，相关的配对记录和密码应在设备上重置。
+
+恢复后的 BLE / OTA 增量与验证边界见 [恢复实测记录](records/resume-ble-ota-test-20261003.md)。
+
+- [手柄类型选择与电动变焦记录](records/controller-mode-zoom-20261003.md)

@@ -10,3 +10,6 @@ bool ui_preferences_command(int argc,char **argv);
 void ui_preferences_poll(void);
 /* Factory reset serializes with persistence and rejects new changes until reboot. */
 esp_err_t ui_preferences_reset(void);
+
+unsigned ui_preferences_pad(void);
+esp_err_t ui_preferences_set_pad(unsigned mode);

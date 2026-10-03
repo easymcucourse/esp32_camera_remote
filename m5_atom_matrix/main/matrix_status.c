@@ -128,7 +128,7 @@ static void render_task(void *context)
         uint8_t classic;
         ds4_host_status(&classic, &dropped);
         ds4_state_t pad;
-        ds4_host_get_state(&pad);
+        ds4_host_get_classic(&pad);
         portENTER_CRITICAL(&lock);
         state.classic = (matrix_link_t)classic;
         state.classic_battery = classic == MATRIX_CONNECTED && pad.connected && pad.battery <= 10 ? pad.battery * 10 : 255;

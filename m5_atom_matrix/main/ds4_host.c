@@ -1,6 +1,8 @@
 #include "ds4_host.h"
 #include "atom_protocol.h"
 #include "matrix_status.h"
+#include "ble_gamepad.h"
+#include "pad_publish.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_bt.h"
@@ -17,11 +19,11 @@
 
 static const char *TAG = "ds4_host";
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
-static ds4_state_t state;
+static pad_publish_t publication;
 static ds4_state_t real_state;
+static ds4_state_t ble_state;
 static bool sim_active;
-static uint8_t input_generation;
-static ds4_events_t events;
+static unsigned input_mode;
 static bool ready, scanning, connecting, active, approved, have_saved;
 static bool have_candidate, save_pending;
 static uint8_t saved[6], target[6], candidate[6];
@@ -35,12 +37,20 @@ static TickType_t last_input_log;
 static void apply_locked(bool simulated, const ds4_state_t *next)
 {
     if (simulated != sim_active) return;
-    ds4_state_t clean = *next;
-    if (!clean.connected) clean = (ds4_state_t){.battery=255};
-    clean.buttons &= (1u<<18)-1;
-    if (state.connected!=clean.connected) ++input_generation;
-    if (state.buttons != clean.buttons) ds4_events_push(&events, clean.buttons);
-    state = clean;
+    unsigned source=simulated ? PAD_SOURCE_SIM : pad_publish_mode_source(input_mode,real_state.connected,ble_state.connected);
+    const ds4_state_t neutral={.battery=255};
+    const ds4_state_t *clean=simulated ? next : source==PAD_SOURCE_DS4 ? &real_state : source==PAD_SOURCE_BLE ? &ble_state : &neutral;
+    pad_publish_apply(&publication,source,clean);
+}
+void ds4_host_set_input_mode(unsigned mode)
+{
+    if (mode>ATOM_INPUT_XBOX) return;
+    portENTER_CRITICAL(&lock);
+    if (input_mode!=mode) {
+        input_mode=mode;
+        if (!sim_active) { pad_publish_reset(&publication);apply_locked(false,&real_state); }
+    }
+    portEXIT_CRITICAL(&lock);
 }
 bool ds4_host_sim_active(void)
 { portENTER_CRITICAL(&lock); bool value=sim_active; portEXIT_CRITICAL(&lock); return value; }
@@ -50,8 +60,7 @@ void ds4_host_set_sim(bool enabled)
     portENTER_CRITICAL(&lock);
     /* Retire queued presses. The wire SIM flag makes LCD release the old source;
      * don't mark a gap on the first new press after the neutral connection. */
-    events.head=events.count=0; events.last_buttons=0; events.gap_pending=false;
-    ++input_generation; sim_active=enabled; state=(ds4_state_t){.battery=255};
+    pad_publish_reset(&publication); sim_active=enabled;
     portEXIT_CRITICAL(&lock);
 #else
     (void)enabled;
@@ -69,7 +78,7 @@ void ds4_host_sim_overflow(void)
 {
 #if CONFIG_REMOTE_DBG_SIM
     portENTER_CRITICAL(&lock);
-    if (sim_active) { ++events.dropped; events.gap_pending=true; }
+    if (sim_active) { ++publication.events.dropped; publication.events.gap_pending=true; }
     portEXIT_CRITICAL(&lock);
 #endif
 }
@@ -95,47 +104,58 @@ static void disconnect_peer(uint8_t *address, const char *reason)
 void ds4_host_get_state(ds4_state_t *out)
 {
     portENTER_CRITICAL(&lock);
-    *out = state;
+    *out = publication.state;
+    portEXIT_CRITICAL(&lock);
+}
+
+void ds4_host_get_classic(ds4_state_t *out)
+{
+    portENTER_CRITICAL(&lock); *out=real_state; portEXIT_CRITICAL(&lock);
+}
+void ds4_host_apply_ble(const ds4_state_t *next)
+{
+    portENTER_CRITICAL(&lock);
+    ble_state=*next; apply_locked(false,&real_state);
     portEXIT_CRITICAL(&lock);
 }
 
 bool ds4_host_read_event(uint32_t ack_id, ds4_event_t *event, uint32_t *dropped)
 {
     portENTER_CRITICAL(&lock);
-    bool available = ds4_events_read(&events, ack_id, event);
-    *dropped = events.dropped;
+    bool available = ds4_events_read(&publication.events, ack_id, event);
+    *dropped = publication.events.dropped;
     portEXIT_CRITICAL(&lock);
     return available;
 }
 
 static uint8_t link_state_locked(void)
 {
-    if (sim_active) return state.connected ? 3 : 0;
-    return !ready ? 0 : active && approved && state.connected ? 3 :
+    if (sim_active) return publication.state.connected ? 3 : 0;
+    return !ready ? 0 : active && approved && real_state.connected ? 3 :
         connecting || active ? 2 : 1;
 }
 void ds4_host_status(uint8_t *link_state, uint32_t *dropped)
 {
     portENTER_CRITICAL(&lock);
-    *link_state = link_state_locked(); *dropped = events.dropped;
+    *link_state = link_state_locked(); *dropped = publication.events.dropped;
     portEXIT_CRITICAL(&lock);
 }
 void ds4_host_debug_status(ds4_state_t *snapshot, uint8_t *link, unsigned *queued, uint32_t *dropped)
 {
     portENTER_CRITICAL(&lock);
-    *snapshot = state; *link = link_state_locked(); *queued = events.count; *dropped = events.dropped;
+    *snapshot = publication.state; *link = publication.state.connected ? 3 : input_mode==ATOM_INPUT_XBOX ? 0 : link_state_locked(); *queued = publication.events.count; *dropped = publication.events.dropped;
     portEXIT_CRITICAL(&lock);
 }
 bool ds4_host_poll(uint32_t ack_id, ds4_state_t *snapshot, uint8_t *link_state,
                    ds4_event_t *event, uint8_t *remaining, uint32_t *dropped, uint8_t *source_tag)
 {
     portENTER_CRITICAL(&lock);
-    *snapshot = state;
-    *link_state = link_state_locked();
-    *source_tag = (uint8_t)(input_generation<<1) | (sim_active?ATOM_DEBUG_SIM:0);
-    bool available = ds4_events_read(&events, ack_id, event);
-    *remaining = available ? (uint8_t)(events.count - 1) : 0;
-    *dropped = events.dropped;
+    *snapshot = publication.state;
+    *link_state = publication.state.connected ? 3 : input_mode==ATOM_INPUT_XBOX ? 0 : link_state_locked();
+    *source_tag = (uint8_t)(publication.generation<<1) | (sim_active?ATOM_DEBUG_SIM:0);
+    bool available = ds4_events_read(&publication.events, ack_id, event);
+    *remaining = available ? (uint8_t)(publication.events.count - 1) : 0;
+    *dropped = publication.events.dropped;
     portEXIT_CRITICAL(&lock);
     return available;
 }
@@ -430,7 +450,7 @@ static void connection_task(void *arg)
 esp_err_t ds4_host_init(void)
 {
     // Avoid reusing the previous boot's ACK IDs after an ATOM reset.
-    events.next_id = esp_random();
+    publication.events.next_id = esp_random();
 #if CONFIG_APP_DS4_DEBUG_LOG
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
 #endif
@@ -447,12 +467,12 @@ esp_err_t ds4_host_init(void)
     if (have_saved) ESP_LOGI(TAG, "Loaded saved DS4 " ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(saved));
     else ESP_LOGI(TAG, "No saved DS4; NVS read=%s bytes=%u", esp_err_to_name(err), (unsigned)length);
     matrix_status_boot_stage(MATRIX_BOOT_BLUETOOTH);
-    ESP_RETURN_ON_ERROR(esp_bt_controller_mem_release(ESP_BT_MODE_BLE), TAG, "release BLE");
     esp_bt_controller_config_t config = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_bt_controller_init(&config), TAG, "init controller");
-    ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT), TAG, "enable BT");
+    ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_BTDM), TAG, "enable dual-mode BT");
     ESP_RETURN_ON_ERROR(esp_bluedroid_init(), TAG, "init Bluedroid");
     ESP_RETURN_ON_ERROR(esp_bluedroid_enable(), TAG, "enable Bluedroid");
+    ESP_RETURN_ON_ERROR(ble_gamepad_init(), TAG, "init BLE controller battery client");
     ESP_LOGI(TAG, "Bluetooth bond count=%d", esp_bt_gap_get_bond_device_num());
     ESP_RETURN_ON_ERROR(esp_bt_gap_register_callback(gap_event), TAG, "register GAP");
     esp_bt_io_cap_t capability = ESP_BT_IO_CAP_NONE;

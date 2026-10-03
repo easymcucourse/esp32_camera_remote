@@ -2,6 +2,7 @@
 #include "sdkconfig.h"
 #if CONFIG_REMOTE_DBG_SIM
 #include "maint_mode.h"
+#include "ui_preferences.h"
 #include "debug_console.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
@@ -232,6 +233,24 @@ static void worker(void *arg)
     char oversized[514];memset(oversized,'x',513);oversized[513]=0;
     if (!request("POST","/api/login",NULL,oversized,413,response)) goto finished;
     if (!request("POST","/api/login",NULL,body,200,response) || !login_token(response,second)) goto finished;
+    if ((uintptr_t)arg==4) {
+        unsigned original=ui_preferences_pad();bool ok=true;
+        if (!request("GET","/api/controller",NULL,NULL,401,response) ||
+            !request("POST","/api/controller",NULL,"{\"type\":\"ds\"}",401,response)) ok=false;
+        const char *invalid[]={"{}","{\"type\":1}","{\"type\":\"invalid\"}",
+            "{\"type\":\"ds\",\"extra\":1}","{\"type\":\"ds\",\"type\":\"xbox\"}"};
+        for (unsigned i=0;ok && i<5;++i)
+            ok=request("POST","/api/controller",second,invalid[i],400,response);
+        for (unsigned mode=0;ok && mode<2;++mode) {
+            const char *body=mode?"{\"type\":\"xbox\"}":"{\"type\":\"ds\"}";
+            ok=request("POST","/api/controller",second,body,200,response) &&
+               ui_preferences_pad()==mode && request("GET","/api/controller",second,NULL,200,response);
+            cJSON *reply=response_json(response),*type=cJSON_GetObjectItemCaseSensitive(reply,"type");
+            ok=ok && cJSON_IsString(type) && !strcmp(type->valuestring,mode?"xbox":"ds");
+            cJSON_Delete(reply);
+        }
+        success=ui_preferences_set_pad(original)==ESP_OK && ok;goto finished;
+    }
     if ((uintptr_t)arg==3) { success=ota_audit(response,second);goto finished; }
     if ((uintptr_t)arg==2) {
         if (!request("POST","/api/reboot",NULL,"{\"confirm\":true}",401,response)) goto finished;
@@ -259,14 +278,15 @@ bool maint_probe_command(int argc,char **argv)
     if ((argc!=2 && argc!=3) || strcmp(argv[0],"maint") || strcmp(argv[1],"probe")) return false;
     bool wifi=argc==3&&!strcmp(argv[2],"wifi");
     bool reboot=argc==3&&!strcmp(argv[2],"reboot");
+    bool controller=argc==3&&!strcmp(argv[2],"controller");
     bool ota=argc==3&&!strcmp(argv[2],"ota");
-    if (argc==3 && !wifi && !reboot && !ota) return false;
+    if (argc==3 && !wifi && !reboot && !ota && !controller) return false;
     bool expected=false;
     if (!maint_mode_is_on() || !atomic_compare_exchange_strong(&busy,&expected,true)) {
         debug_printf("[dbg] ERR maint probe requires active mode and idle probe\n");return true;
     }
     token=debug_async_token();
-    if (xTaskCreateWithCaps(worker,"maint_probe",ota?8192:6144,(void*)(uintptr_t)(ota?3:reboot?2:wifi?1:0),2,NULL,(ota?MALLOC_CAP_INTERNAL:MALLOC_CAP_SPIRAM)|MALLOC_CAP_8BIT)!=pdPASS) {
+    if (xTaskCreateWithCaps(worker,"maint_probe",ota?8192:6144,(void*)(uintptr_t)(controller?4:ota?3:reboot?2:wifi?1:0),2,NULL,(ota?MALLOC_CAP_INTERNAL:MALLOC_CAP_SPIRAM)|MALLOC_CAP_8BIT)!=pdPASS) {
         atomic_store(&busy,false);debug_printf("[dbg] ERR maint probe memory\n");return true;
     }
     debug_printf("[dbg] OK maint probe queued token=%lu duration=%ums\n",(unsigned long)token,ota?90000:wifi?30000:10000);return true;

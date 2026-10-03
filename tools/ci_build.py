@@ -11,10 +11,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('board', choices=('lcd', 'atom'))
     parser.add_argument('flavour', choices=('debug', 'release'))
+    parser.add_argument('--profile', choices=('default', 'stable'), default='default',
+                        help='LCD stable profile uses 80 MHz Flash and PSRAM')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     project = root if args.board == 'lcd' else root / 'm5_atom_matrix'
-    build = root / 'build' / f'ci-{args.board}-{args.flavour}'
+    if args.profile == 'stable' and args.board != 'lcd':
+        parser.error('stable profile is for the LCD ESP32-S3 only')
+    suffix = '-stable' if args.profile == 'stable' else ''
+    build = root / 'build' / f'ci-{args.board}-{args.flavour}{suffix}'
     idf = os.environ.get('IDF_PATH')
     if not idf or not (Path(idf) / 'tools/idf.py').is_file():
         parser.error('export ESP-IDF first (IDF_PATH must point to its checkout)')
@@ -22,6 +27,8 @@ def main():
     default_files = [project / 'sdkconfig.defaults', root / 'tools/ci' / f'{args.flavour}.defaults']
     if args.board == 'lcd':
         default_files.append(root / 'tools/ci' / f'lcd-{args.flavour}.defaults')
+        if args.profile == 'stable':
+            default_files.append(root / 'sdkconfig.stable.defaults')
     defaults = ';'.join(str(p) for p in default_files)
     subprocess.run([sys.executable, str(Path(idf) / 'tools/idf.py'), '-B', str(build),
                     '-D', f'SDKCONFIG={build / "sdkconfig"}', '-D', f'SDKCONFIG_DEFAULTS={defaults}',
@@ -31,11 +38,18 @@ def main():
     expected_debug = args.flavour == 'debug'
     options = ['REMOTE_DBG_SIM']
     if args.board == 'lcd':
+        if args.profile == 'stable' and not {
+                'CONFIG_ESPTOOLPY_FLASHFREQ_80M=y', 'CONFIG_SPIRAM_SPEED_80M=y'} <= config:
+            raise RuntimeError('stable profile clock drift; refresh its build sdkconfig')
         options.append('APP_DEBUG_FAULT_INJECTION')
     for option in options:
         if (f'CONFIG_{option}=y' in config) != expected_debug:
             raise RuntimeError(f'{option} does not match {args.flavour}; check {build / "sdkconfig"}')
     name = 'esp32_camera_remote' if args.board == 'lcd' else 'm5_atom_matrix'
+    if args.board == 'atom' and not {
+            'CONFIG_BTDM_CTRL_MODE_BTDM=y', 'CONFIG_BT_BLE_ENABLED=y',
+            'CONFIG_BT_GATTC_ENABLE=y'} <= config:
+        raise RuntimeError('ATOM BLE support disabled; refresh its build sdkconfig')
     if args.board == 'lcd':
         if 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' not in config:
             raise RuntimeError('LCD OTA rollback is disabled; refresh the build sdkconfig')

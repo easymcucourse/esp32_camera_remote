@@ -6,6 +6,7 @@
 #include "maint_ota.h"
 #include "camera_pair.h"
 #include "atom_link.h"
+#include "ui_preferences.h"
 #include "wifi_ap.h"
 #include "esp_http_server.h"
 #include "esp_app_desc.h"
@@ -160,6 +161,29 @@ static esp_err_t reboot_device(httpd_req_t *request)
     if (sent!=ESP_OK || !app_restart_commit(1500)) app_restart_cancel();
     return sent;
 }
+static esp_err_t controller_get(httpd_req_t *request)
+{
+    if (!authenticated(request)) return ESP_OK;
+    cJSON *reply=cJSON_CreateObject();
+    cJSON_AddStringToObject(reply,"type",ui_preferences_pad()==0?"ds":"xbox");
+    return json_reply(request,reply);
+}
+static esp_err_t controller_post(httpd_req_t *request)
+{
+    if (!authenticated(request)) return ESP_OK;
+    cJSON *json=read_json(request);if (!json) return ESP_OK;
+    cJSON *item=json->child;
+    bool valid=item && !item->next && !strcmp(item->string,"type") &&
+        cJSON_IsString(item) && (!strcmp(item->valuestring,"ds") || !strcmp(item->valuestring,"xbox"));
+    unsigned mode=valid && !strcmp(item->valuestring,"xbox");
+    cJSON_Delete(json);
+    if (!valid) return json_error(request,"400 Bad Request","type must be ds or xbox");
+    if (maint_mode_upload_active() || maint_mode_is_shutting_down())
+        return json_error(request,"409 Conflict","device busy");
+    esp_err_t err=ui_preferences_set_pad(mode);
+    if (err!=ESP_OK) return json_error(request,"500 Internal Server Error","failed to save controller type");
+    return controller_get(request);
+}
 static esp_err_t wifi_get(httpd_req_t *request)
 {
     if (!authenticated(request)) return ESP_OK;
@@ -234,7 +258,7 @@ esp_err_t maint_web_start(void)
     httpd_config_t config=HTTPD_DEFAULT_CONFIG();
     config.task_priority=3;config.stack_size=6144;config.max_open_sockets=3;
     config.lru_purge_enable=true;config.recv_wait_timeout=10;config.send_wait_timeout=10;
-    config.max_uri_handlers=12;
+    config.max_uri_handlers=14;
     esp_err_t err=httpd_start(&server,&config);
     if (err!=ESP_OK) { server=NULL;return err; }
     const httpd_uri_t routes[]={
@@ -242,6 +266,8 @@ esp_err_t maint_web_start(void)
         {.uri="/api/login",.method=HTTP_POST,.handler=login},
         {.uri="/api/logout",.method=HTTP_POST,.handler=logout},
         {.uri="/api/info",.method=HTTP_GET,.handler=info},
+        {.uri="/api/controller",.method=HTTP_GET,.handler=controller_get},
+        {.uri="/api/controller",.method=HTTP_POST,.handler=controller_post},
         {.uri="/api/wifi",.method=HTTP_GET,.handler=wifi_get},
         {.uri="/api/wifi",.method=HTTP_POST,.handler=wifi_post},
         {.uri="/api/wifi/random_password",.method=HTTP_GET,.handler=wifi_random},

@@ -1,0 +1,5 @@
+# Compatibility profile: lower memory clock; same partitions and application.
+# CONFIG_ESPTOOLPY_FLASHFREQ_120M is not set
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+# CONFIG_SPIRAM_SPEED_120M is not set
+CONFIG_SPIRAM_SPEED_80M=y

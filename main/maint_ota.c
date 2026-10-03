@@ -1,5 +1,6 @@
 #include "maint_ota.h"
 #include "ota_header.h"
+#include "ota_health.h"
 #include "maint_mode.h"
 #include "app_restart.h"
 #include "board_7b.h"
@@ -11,6 +12,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "cJSON.h"
 #include <stddef.h>
@@ -137,7 +139,8 @@ const char *maint_ota_boot_status(void)
     if (run && esp_ota_get_state_partition(run,&state)==ESP_OK) {
         if (state==ESP_OTA_IMG_PENDING_VERIFY) return "pending_verify";
         const esp_partition_t *other=esp_ota_get_next_update_partition(NULL);esp_ota_img_states_t other_state;
-        if (other && esp_ota_get_state_partition(other,&other_state)==ESP_OK && other_state==ESP_OTA_IMG_ABORTED) return "rolled_back";
+        if (other && esp_ota_get_state_partition(other,&other_state)==ESP_OK &&
+            (other_state==ESP_OTA_IMG_ABORTED || other_state==ESP_OTA_IMG_INVALID)) return "rolled_back";
         if (state==ESP_OTA_IMG_VALID) return "valid";
     }
     return "unknown";
@@ -147,21 +150,33 @@ void maint_ota_startup_ready(void)
     esp_ota_img_states_t state;const esp_partition_t *run=esp_ota_get_running_partition();
     pending=run && esp_ota_get_state_partition(run,&state)==ESP_OK && state==ESP_OTA_IMG_PENDING_VERIFY;
     ready=true;ready_at=esp_timer_get_time();
+    next_check=0;
     ESP_LOGI("maint_ota","Boot running=%s status=%s; confirmation after 60s healthy runtime",run?run->label:"unknown",maint_ota_boot_status());
+}
+static void rollback(const char *reason)
+{
+    ESP_LOGE("maint_ota","OTA self-test failed (%s); requesting rollback",reason);
+    if (maint_mode_quiesce(3000)) camera_maintenance_acquire(3000);
+    esp_err_t err=esp_ota_mark_app_invalid_rollback_and_reboot();
+    /* This API returns only on failure. Do not continue normal execution after
+     * failed self-test; the bootloader re-evaluates the recorded slot states. */
+    ESP_LOGE("maint_ota","Rollback API returned: %s; restarting for bootloader recovery",esp_err_to_name(err));
+    esp_restart();
 }
 void maint_ota_health(void)
 {
     int64_t now=esp_timer_get_time();if (!ready || !pending || now<next_check) return;next_check=now+1000000;
     if (board_7b_display_failed()) return; /* Normal fatal-display path closes maintenance before resetting; unconfirmed image rolls back. */
-    if (!heap_caps_check_integrity_all(true)) {
-        ESP_LOGE("maint_ota","OTA self-test failed; requesting rollback");
-        if (maint_mode_quiesce(3000)) camera_maintenance_acquire(3000);
-        esp_ota_mark_app_invalid_rollback_and_reboot();return;
-    }
+    bool heap_ok=heap_caps_check_integrity_all(true);
     esp_netif_t *ap=esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-    if (now-ready_at>=60000000 && ap && esp_netif_is_netif_up(ap)) {
+    ota_health_action_t action=ota_health_decide(now-ready_at,heap_ok,ap && esp_netif_is_netif_up(ap));
+    if (action==OTA_HEALTH_ROLLBACK) {
+        rollback(heap_ok?"hotspot unavailable after 60s":"heap integrity");
+        return;
+    }
+    if (action==OTA_HEALTH_CONFIRM) {
         esp_err_t err=esp_ota_mark_app_valid_cancel_rollback();
         if (err==ESP_OK) { pending=false;ESP_LOGI("maint_ota","OTA confirmed after 60s healthy runtime"); }
-        else ESP_LOGE("maint_ota","OTA confirmation failed: %s",esp_err_to_name(err));
+        else { ESP_LOGE("maint_ota","OTA confirmation failed: %s",esp_err_to_name(err));rollback("confirmation failed"); }
     }
 }

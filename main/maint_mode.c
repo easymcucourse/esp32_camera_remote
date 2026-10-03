@@ -1,5 +1,6 @@
 #include "maint_mode.h"
 #include "maint_confirm.h"
+#include "maint_notice.h"
 #include "maint_ota.h"
 #include "camera_pair.h"
 #include "board_7b.h"
@@ -18,6 +19,8 @@ static atomic_bool on,camera_session,close_for_camera;
 static atomic_uint last_activity,outstanding;
 static atomic_uint input_epoch;
 static maint_confirm_t confirmation;
+/* Owned exclusively by maint_ctl, including enable/disable. */
+static maint_notice_t notice;
 static atomic_bool paused;
 static atomic_bool shutting_down,quiesced;
 static atomic_bool uploading,upload_request,upload_reply;
@@ -42,6 +45,7 @@ static esp_err_t disable(void)
     esp_err_t err=maint_web_stop();
     if (err!=ESP_OK) { atomic_store(&closing_service,false);return err; }
     atomic_store(&on,false);
+    maint_notice_set(&notice,MAINT_NOTICE_NONE,now_ms());
     maint_confirm_cancel(&confirmation);board_7b_set_maint_menu(0);
     board_7b_set_maint_text("");
     board_7b_request_maint_screen(false);
@@ -64,6 +68,7 @@ static esp_err_t enable(bool stop)
     atomic_store(&close_for_camera,false);
     esp_err_t err=maint_web_start();
     if (err==ESP_OK) {
+        maint_notice_set(&notice,MAINT_NOTICE_NONE,now_ms());
         maint_mode_touch();atomic_store(&on,true);
         board_7b_set_maint_menu(3);
         if (atomic_load(&camera_session)) { disable();return ESP_ERR_INVALID_STATE; }
@@ -90,7 +95,6 @@ static void worker(void *arg)
         }
         if (!board_7b_settings_mode() || board_7b_menu_selected()!=8) maint_confirm_cancel(&confirmation);
         maint_confirm_tick(&confirmation,now_ms(),atomic_load(&input_epoch));
-        if (!atomic_load(&on)) board_7b_set_maint_menu(confirmation.armed?1:0);
         request_t request;
         if (xQueueReceive(requests,&request,pdMS_TO_TICKS(100))) {
             esp_err_t err=ESP_OK;
@@ -105,13 +109,18 @@ static void worker(void *arg)
                     board_7b_set_maint_menu(2);err=enable(true);
                 } else board_7b_set_maint_menu(1);
             } else { maint_confirm_cancel(&confirmation);err=request.action==0?disable():enable(request.action==2); }
-            if (err!=ESP_OK) board_7b_set_maint_menu(4);
+            if (err!=ESP_OK) maint_notice_set(&notice,MAINT_NOTICE_ERROR,now_ms());
             result_t result={request.token,err,atomic_load(&on),confirmation.armed};
             xQueueSend(results,&result,0);
         }
         if (!atomic_load(&uploading) && atomic_exchange(&close_for_camera,false) && atomic_load(&on)) {
-            if (disable()==ESP_OK) board_7b_set_maint_text("MAINTENANCE OFF: camera connected. Disconnect phone from Wi-Fi.");
+            if (disable()==ESP_OK) maint_notice_set(&notice,MAINT_NOTICE_CAMERA,now_ms());
         }
+        bool showing_notice=maint_notice_tick(&notice,now_ms());
+        board_7b_set_maint_menu(showing_notice && notice.kind==MAINT_NOTICE_ERROR?4:
+                               atomic_load(&on)?3:confirmation.armed?1:0);
+        if (!atomic_load(&on)) board_7b_set_maint_text(showing_notice && notice.kind==MAINT_NOTICE_CAMERA?
+            "MAINTENANCE OFF: camera connected. Disconnect phone from Wi-Fi.":"");
         if (atomic_load(&on) && !atomic_load(&uploading)) {
             unsigned elapsed=now_ms()-atomic_load(&last_activity);
             if (elapsed>=600000) { disable();continue; }

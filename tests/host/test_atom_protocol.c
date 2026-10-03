@@ -68,7 +68,13 @@ int main(void)
     assert(response.status == ATOM_BAD_CRC);
 
     atom_client_t c = {0}; uint8_t hello[ATOM_HELLO_SIZE] = {0};
-    atom_write_le(hello, 123, 4); hello[6] = 9; hello[7] = 128; hello[8] = 2;
+    atom_write_le(hello, 123, 4); hello[6] = 9 | ATOM_FEATURE_INPUT_MODE; hello[7] = 128; hello[8] = 2;
+    assert(atom_client_request(&c).param==0x0202);
+    c.input_mode=ATOM_INPUT_XBOX;
+    assert(atom_client_request(&c).param==0x10202);
+    hello[6]=9;
+    assert(reply(&c,hello,sizeof(hello),ATOM_OK)==ATOM_CLIENT_RETRY && !c.online);
+    hello[6]|=ATOM_FEATURE_INPUT_MODE;
     assert(reply(&c, hello, sizeof(hello), ATOM_OK) == ATOM_CLIENT_HELLO);
     assert(c.online && c.boot_id == 123 && c.seq == 1 && c.local_mask == 2 && !c.ack_id);
     memset(p, 0, sizeof(p)); atom_write_le(p, 123, 4); p[4] = 3; p[8] = 5;

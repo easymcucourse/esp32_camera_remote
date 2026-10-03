@@ -25,6 +25,12 @@ typedef struct {
     pad_lens_t lens;
     uint32_t generation; /* Changes on every session or safety cancellation. */
 } gamepad_caps_t;
+/* This project's PZ lens is explicitly confirmed by the user, not inferred
+ * from a disabled/missing digital zoom capability property. Camera acceptance
+ * still determines whether the requested motor operation succeeds. */
+static inline bool gamepad_zoom_available(const gamepad_caps_t *caps)
+{ return caps->lens==PAD_LENS_POWER_ZOOM || (caps->zoom_known && caps->zoom_enabled); }
+
 typedef struct {
     bool connected;
     uint32_t buttons;

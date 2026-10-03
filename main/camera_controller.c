@@ -52,7 +52,8 @@ static sony_mode_state_t mode;
 static QueueHandle_t focus_requests;
 static portMUX_TYPE controls_mux = portMUX_INITIALIZER_UNLOCKED;
 static camera_actions_t controls;
-static gamepad_caps_t published_caps;
+/* User confirmed the currently installed power zoom lens on 2026-10-03. */
+static gamepad_caps_t published_caps={.lens=PAD_LENS_POWER_ZOOM};
 static atomic_uint input_generation;
 static bool record_executing;
 static bool record_wait; /* Camera owner only. */
@@ -128,7 +129,7 @@ static void parse_focus_caps(const uint8_t *data, size_t size)
     portENTER_CRITICAL(&controls_mux);
     caps.session = controls.session;
     caps.generation = controls.generation;
-    /* No confirmed PZ lens field is present in the current captures. */
+    /* Preserve the user-declared lens; this is not automatic identification. */
     caps.lens = published_caps.lens;
     caps.record_pending = record_wait || record_executing || camera_actions_record_queued(&controls);
     published_caps = caps;
@@ -423,7 +424,7 @@ static bool execute_actions(int command, uint32_t *transaction, uint8_t *buffer,
             gamepad_caps_t caps; camera_gamepad_caps(&caps);
             bool available = type == PAD_ACTION_RECORD ? caps.recording_known && !record_wait &&
                 caps.recording != (action.action.value != 0) :
-                caps.zoom_known && caps.zoom_enabled &&
+                gamepad_zoom_available(&caps) &&
                 !(caps.mf_known && caps.mf && caps.lens == PAD_LENS_NON_POWER_ZOOM);
             if (!available) {
                 record_executing = false;

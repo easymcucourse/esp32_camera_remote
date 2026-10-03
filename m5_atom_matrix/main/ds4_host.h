@@ -14,3 +14,8 @@ bool ds4_host_sim_active(void);
 void ds4_host_set_sim(bool enabled);
 void ds4_host_apply_sim(const ds4_state_t *next);
 void ds4_host_sim_overflow(void);
+
+void ds4_host_get_classic(ds4_state_t *state);
+void ds4_host_apply_ble(const ds4_state_t *state);
+
+void ds4_host_set_input_mode(unsigned mode);

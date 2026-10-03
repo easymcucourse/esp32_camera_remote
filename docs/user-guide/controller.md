@@ -15,7 +15,7 @@ LCD GPIO8（SDA）、GPIO9（SCL）、GND 接 ATOM GPIO26、GPIO32、GND。总�
 | 输入 | 功能 |
 | --- | --- |
 | Start / Options | LIVE 与 SETTINGS 切换 |
-| L1 / R1 | Tele / Wide 变焦；确认非电动变焦镜头且 MF 时近 / 远对焦 |
+| L1 / R1 | Wide / Tele 变焦；确认非电动变焦镜头且 MF 时近 / 远对焦 |
 | Y / 三角 | 循环切换下一个曝光 Mode，按住不重复 |
 | X / 方块 | 循环切换下一个对焦模式，按住不重复 |
 | RT / R2 | 半压 S1，全压 S2；退出全压释放 S2，完全松开释放 S1 |
