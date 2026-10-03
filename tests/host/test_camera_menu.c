@@ -10,7 +10,7 @@ static size_t used;
 static void begin(void) { memset(data, 0, sizeof(data)); used = 8; }
 static void property(unsigned index, uint8_t enabled, uint32_t actual, const uint32_t *choices, unsigned count)
 {
-    static const uint16_t types[] = {6, 4, 6, 3, 4, 4, 4};
+    static const uint16_t types[] = {6, 4, 6, 3, 4, 4, 4, 2, 6, 4, 4, 4, 2, 4, 4, 4};
     uint16_t type = types[index]; unsigned width = 1u << ((type - 1) / 2);
     put32(data, get32(data) + 1);
     data[used++] = camera_menu_codes[index]; data[used++] = camera_menu_codes[index] >> 8;
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     assert(camera_menu_target(&menu, MENU_ISO, &target) && target == 100);
     one(MENU_ISO, 2, 800, choices, 4); camera_menu_snapshot(&menu, data, used, 6001);
     assert(!camera_menu_pending(&menu) && !camera_menu_step(&menu, MENU_ISO, 1, false));
-    /* Signed EV bit patterns are preserved; menu clamps while X cycles Focus. */
+    /* Signed EV bit patterns are preserved. */
     uint32_t ev[] = {0xfc18, 0, 1000};
     one(MENU_EV, 1, 0, ev, 3); camera_menu_snapshot(&menu, data, used, 7000);
     assert(camera_menu_step(&menu, MENU_EV, -1, false));
@@ -98,10 +98,32 @@ int main(int argc, char **argv)
     assert(camera_menu_step(&menu, MENU_SHUTTER, 1, false));
     assert(camera_menu_next(&menu, MENU_SHUTTER, 10017, &write) && write.relative);
     camera_menu_cancel(&menu); assert(!camera_menu_pending(&menu));
+    /* Every enum-backed parameter wraps both boundaries and retains readback gating. */
+    uint32_t boundary_choices[] = {1, 2, 3, 4};
+    for (unsigned i = 0; i < CAMERA_MENU_COUNT; ++i) {
+        menu = (camera_menu_t){0};
+        one(i, 1, boundary_choices[0], boundary_choices, 4);
+        assert(camera_menu_snapshot(&menu, data, used, 11000));
+        assert(camera_menu_step(&menu, i, -1, true));
+        assert(camera_menu_target(&menu, i, &target) && target == boundary_choices[3]);
+        assert(camera_menu_next(&menu, i, 11000, &write) && write.value == boundary_choices[3] && !write.relative);
+        camera_menu_response(&menu, i, true);
+        assert(camera_menu_snapshot(&menu, data, used, 11001));
+        assert(camera_menu_status(&menu, i) == SETTING_PENDING);
+        assert(camera_menu_step(&menu, i, 1, true));
+        assert(!camera_menu_next(&menu, i, 11002, &write));
+        one(i, 1, boundary_choices[3], boundary_choices, 4);
+        assert(camera_menu_snapshot(&menu, data, used, 11003));
+        assert(camera_menu_next(&menu, i, 11003, &write) && write.value == boundary_choices[0]);
+        camera_menu_response(&menu, i, true);
+        one(i, 1, boundary_choices[0], boundary_choices, 4);
+        assert(camera_menu_snapshot(&menu, data, used, 11004));
+        assert(camera_menu_status(&menu, i) == SETTING_APPLIED && !camera_menu_pending(&menu));
+    }
     FILE *file = fopen(argv[1], "rb"); assert(file);
     uint8_t fixture[16384]; size_t size = fread(fixture, 1, sizeof(fixture), file); assert(feof(file)); fclose(file);
     assert(camera_menu_snapshot(&menu, fixture, size, 20000));
-    for (unsigned i = MENU_ISO; i < CAMERA_MENU_COUNT; ++i) {
+    for (unsigned i = MENU_ISO; i < MENU_ASPECT; ++i) {
         assert(menu.items[i].writable);
         sony_mode_state_t *state = &menu.items[i].control.snapshot;
         int direction = state->current == state->values[state->count - 1] ? -1 : 1;
@@ -110,6 +132,19 @@ int main(int argc, char **argv)
     }
     assert(!menu.items[MENU_SHUTTER].writable && !menu.items[MENU_APERTURE].writable);
     camera_menu_cancel(&menu); assert(!camera_menu_pending(&menu));
+    for (unsigned i = MENU_ASPECT; i < CAMERA_MENU_COUNT; ++i) {
+        menu = (camera_menu_t){0};
+        one(i, 2, 1, boundary_choices, 4);
+        assert(camera_menu_snapshot(&menu, data, used, 21000));
+        assert(!menu.items[i].writable && !camera_menu_step(&menu, i, 1, true));
+        one(i, 1, 1, NULL, 0);
+        assert(camera_menu_snapshot(&menu, data, used, 21001));
+        assert(!menu.items[i].writable && !menu.items[i].relative);
+        assert(!camera_menu_step(&menu, i, 1, true));
+        one(i, 1, 99, boundary_choices, 4);
+        assert(camera_menu_snapshot(&menu, data, used, 21002));
+        assert(!camera_menu_step(&menu, i, 1, true));
+    }
     puts("camera menu capability, target merge, readback and safety tests passed");
     return 0;
 }

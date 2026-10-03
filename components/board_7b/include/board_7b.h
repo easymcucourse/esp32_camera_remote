@@ -34,6 +34,10 @@ bool board_7b_toggle_settings_mode(void);
 bool board_7b_settings_mode(void);
 void board_7b_menu_move(int direction);
 unsigned board_7b_menu_selected(void);
+bool board_7b_extra_menu_active(void);
+void board_7b_extra_menu_open(bool active);
+void board_7b_extra_menu_move(int direction);
+bool board_7b_extra_menu_exit_selected(void);
 /* Maintenance menu: 0 off, 1 confirm, 2 pending, 3 on, 4 failed. */
 void board_7b_set_maint_menu(unsigned state);
 typedef struct {
@@ -43,9 +47,11 @@ typedef struct {
 } board_wifi_menu_view_t;
 void board_7b_set_wifi_menu(const board_wifi_menu_view_t *view);
 uint32_t board_7b_connection_generation(void);
-/* Seven rows: shutter, aperture, ISO, EV, WB, Focus, Metering. */
+/* Seven primary parameter rows followed by nine extra parameter rows. */
 void board_7b_set_menu_item(unsigned index, bool writable, unsigned status,
                            bool target_valid, uint32_t target);
+typedef struct { uint32_t actual, target; unsigned status; bool writable, target_valid; } board_extra_status_t;
+bool board_7b_get_extra_status(unsigned index, board_extra_status_t *out);
 /* Single JPEG worker only. INVALID_RESPONSE drops this image; INVALID_STATE
  * requires recovery. No framebuffer is published on a decode error. */
 esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length);

@@ -2,7 +2,11 @@
 #include "setting_control.h"
 #include <stddef.h>
 
-enum { MENU_SHUTTER, MENU_APERTURE, MENU_ISO, MENU_EV, MENU_WB, MENU_FOCUS, MENU_METER, CAMERA_MENU_COUNT };
+enum {
+    MENU_SHUTTER, MENU_APERTURE, MENU_ISO, MENU_EV, MENU_WB, MENU_FOCUS, MENU_METER,
+    MENU_ASPECT, MENU_DRIVE, MENU_EFFECT, MENU_DRO, MENU_AF_AREA, MENU_WL_FLASH,
+    MENU_WB_TEMP, MENU_WB_AB, MENU_WB_GM, CAMERA_MENU_COUNT
+};
 extern const uint16_t camera_menu_codes[CAMERA_MENU_COUNT];
 typedef struct {
     setting_control_t control;

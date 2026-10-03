@@ -8,6 +8,7 @@
 #include "image_stride.h"
 #include "board_lcd.h"
 #include "camera_settings.h"
+#include "camera_menu_navigation.h"
 #include "ui_fonts.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
@@ -69,7 +70,7 @@ static atomic_uint recording_state, recording_started_s;
 static atomic_uint camera_battery = 255;
 static atomic_bool settings_mode;
 static atomic_bool sim_active;
-static atomic_uint menu_selected;
+static atomic_uint menu_selected = 5; /* Focus is the first editable screen row. */
 static atomic_uint maint_menu_state;
 void board_7b_set_maint_menu(unsigned state)
 {
@@ -84,7 +85,9 @@ typedef struct {
     unsigned status;
     uint32_t target, status_ms;
 } menu_view_t;
-static menu_view_t menu_view[7];
+static menu_view_t menu_view[7 + CAMERA_EXTRA_COUNT];
+static atomic_bool extra_menu_active;
+static atomic_uint extra_menu_selected;
 static portMUX_TYPE menu_mux = portMUX_INITIALIZER_UNLOCKED;
 static atomic_uint prop_iso = 0xffffffff;
 static atomic_uint prop_shutter = 0xffffffff;
@@ -122,7 +125,7 @@ static int fit_font_size(const char *text, int requested, int max_width, bool nu
 static void draw_connection(uint16_t *pixels, const char *status)
 {
     for (int i = 0; i < BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT; ++i) pixels[i] = 0x1082;
-    const char *title = "easymcucourse camera station";
+    const char *title = "easymcucourse camera console";
     draw_text(pixels, 48, 40, title,
               fit_font_size(title, 40, BOARD_LCD_WIDTH - 96, false), 0xffff);
     if (atomic_load(&sim_active)) draw_text(pixels, 48, 92, "SIM", 24, 0xffe0);
@@ -360,7 +363,23 @@ void board_7b_set_camera_property(uint16_t code, uint32_t value)
 }
 
 bool board_7b_settings_mode(void) { return atomic_load(&settings_mode); }
-unsigned board_7b_menu_selected(void) { return atomic_load(&menu_selected); }
+unsigned board_7b_menu_selected(void) { return atomic_load(&extra_menu_active) ? 7 + atomic_load(&extra_menu_selected) : atomic_load(&menu_selected); }
+bool board_7b_extra_menu_active(void) { return atomic_load(&extra_menu_active); }
+bool board_7b_extra_menu_exit_selected(void) { return atomic_load(&extra_menu_selected) == CAMERA_EXTRA_COUNT; }
+void board_7b_extra_menu_open(bool active)
+{
+    if (active) atomic_store(&extra_menu_selected, 0);
+    atomic_store(&extra_menu_active, active);
+    atomic_store(&wifi_info_dirty, true);
+}
+void board_7b_extra_menu_move(int direction)
+{
+    if (direction != 1 && direction != -1) return;
+    unsigned previous = atomic_load(&extra_menu_selected), next;
+    do { next = camera_menu_extra_next(previous, direction, CAMERA_EXTRA_COUNT); }
+    while (!atomic_compare_exchange_weak(&extra_menu_selected, &previous, next));
+    atomic_store(&wifi_info_dirty, true);
+}
 uint32_t board_7b_connection_generation(void) { return atomic_load(&connection_generation); }
 void board_7b_set_wifi_menu(const board_wifi_menu_view_t *view)
 {
@@ -374,14 +393,15 @@ void board_7b_menu_move(int direction)
 {
     if (!atomic_load(&settings_mode) || (direction != -1 && direction != 1)) return;
     unsigned previous = atomic_load(&menu_selected), next;
-    do { next = (previous + (direction > 0 ? 1 : 8)) % 9; }
+    /* Menu IDs stay tied to camera properties; navigation follows screen order. */
+    do { next = camera_menu_main_next(previous, direction); }
     while (!atomic_compare_exchange_weak(&menu_selected, &previous, next));
     atomic_store(&wifi_info_dirty, true);
 }
 void board_7b_set_menu_item(unsigned index, bool writable, unsigned status,
                            bool target_valid, uint32_t target)
 {
-    if (index >= 7 || status > 5) return;
+    if (index >= 7 + CAMERA_EXTRA_COUNT || status > 5) return;
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
     portENTER_CRITICAL(&menu_mux);
     menu_view_t *v = &menu_view[index];
@@ -390,12 +410,23 @@ void board_7b_set_menu_item(unsigned index, bool writable, unsigned status,
     v->target_valid = target_valid; v->target = target;
     portEXIT_CRITICAL(&menu_mux);
 }
+bool board_7b_get_extra_status(unsigned index, board_extra_status_t *out)
+{
+    if (index >= CAMERA_EXTRA_COUNT || !out) return false;
+    portENTER_CRITICAL(&menu_mux);
+    menu_view_t v = menu_view[7 + index];
+    portEXIT_CRITICAL(&menu_mux);
+    *out = (board_extra_status_t){.actual = atomic_load(&prop_extra[index]), .target = v.target,
+        .status = v.status, .writable = v.writable, .target_valid = v.target_valid};
+    return true;
+}
 
 bool board_7b_toggle_settings_mode(void)
 {
     bool previous = atomic_load(&settings_mode);
     while (!atomic_compare_exchange_weak(&settings_mode, &previous, !previous)) {}
     atomic_store(&wifi_info_dirty, true);
+    if (previous) board_7b_extra_menu_open(false);
     return !previous;
 }
 
@@ -543,44 +574,41 @@ static void draw_preview_status(uint16_t *pixels)
         }
         return;
     }
-    char lines[8][32];
-    bool controller_online = atomic_load(&controller_connected);
+    char lines[7][32];
     unsigned value = fps_tenths > 999 ? 999 : fps_tenths;
     int rssi = atomic_load(&wifi_rssi);
     unsigned battery = atomic_load(&camera_battery);
     const char *sim = atomic_load(&sim_active) ? "SIM " : "";
-    if (battery > 100) snprintf(lines[0], sizeof(lines[0]), "%sCAM BATTERY --",sim);
-    else snprintf(lines[0], sizeof(lines[0]), "%sCAM BATTERY %u%%",sim,battery);
+    if (battery > 100) snprintf(lines[4], sizeof(lines[4]), "%sBATTERY --",sim);
+    else snprintf(lines[4], sizeof(lines[4]), "%sBATTERY %u%%",sim,battery);
     unsigned focus = atomic_load(&prop_focus);
     const char *focus_label = focus_name(focus);
-    if (focus_label) snprintf(lines[1], sizeof(lines[1]), "FOCUS %s", focus_label);
-    else if (focus >= 0xfffd) snprintf(lines[1], sizeof(lines[1]), "FOCUS --");
-    else snprintf(lines[1], sizeof(lines[1]), "FOCUS 0X%04X", focus);
-    if (rssi <= -127) snprintf(lines[2], sizeof(lines[2]), "WIFI --");
-    else snprintf(lines[2], sizeof(lines[2]), "WIFI %d DBM", rssi);
-    snprintf(lines[3], sizeof(lines[3]), "FPS %u.%u", value / 10, value % 10);
-    snprintf(lines[4], sizeof(lines[4]), "CAM %s", camera_model);
-    snprintf(lines[5], sizeof(lines[5]), "FW %s", camera_firmware);
-    format_exposure_mode(lines[6], sizeof(lines[6]), atomic_load(&exposure_mode));
-    snprintf(lines[7], sizeof(lines[7]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
+    if (focus_label) snprintf(lines[6], sizeof(lines[6]), "FOCUS %s", focus_label);
+    else if (focus >= 0xfffd) snprintf(lines[6], sizeof(lines[6]), "FOCUS --");
+    else snprintf(lines[6], sizeof(lines[6]), "FOCUS 0X%04X", focus);
+    if (rssi <= -127) snprintf(lines[0], sizeof(lines[0]), "WIFI --");
+    else snprintf(lines[0], sizeof(lines[0]), "WIFI %d DBM", rssi);
+    snprintf(lines[1], sizeof(lines[1]), "FPS %u.%u", value / 10, value % 10);
+    snprintf(lines[2], sizeof(lines[2]), "CAM %s", camera_model);
+    snprintf(lines[3], sizeof(lines[3]), "FW %s", camera_firmware);
+    format_exposure_mode(lines[5], sizeof(lines[5]), atomic_load(&exposure_mode));
 
     const int pixel_size = 18, padding = 8, top = 8;
     const int line_height = ui_fonts_line_height(pixel_size) + 2;
     int longest = 0;
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 7; ++i)
         if (ui_fonts_measure(lines[i], pixel_size, true) > longest)
             longest = ui_fonts_measure(lines[i], pixel_size, true);
     int width = longest + padding * 2;
     if (width > BOARD_LCD_WIDTH - 16) width = BOARD_LCD_WIDTH - 16;
-    int height = line_height * 8 + padding * 2;
+    int height = line_height * 7 + padding * 2;
     int left = BOARD_LCD_WIDTH - 8 - width;
     for (int y = top; y < top + height; ++y)
         memset(pixels + y * BOARD_LCD_WIDTH + left, 0, width * sizeof(uint16_t));
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 7; ++i)
         ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT,
                       left + padding, top + padding + i * line_height, lines[i], pixel_size,
-                      i == 7 ? (controller_online ? 0x07e0 : 0xf800) :
-                      (i == 0 && *sim ? 0xffe0 : i == 0 && battery <= 20 ? 0xf800 : i == 2 && rssi > -127 && rssi < -75 ? 0xffe0 : 0xffff),
+                      (i == 4 && *sim ? 0xffe0 : i == 4 && battery <= 20 ? 0xf800 : i == 0 && rssi > -127 && rssi < -75 ? 0xffe0 : 0xffff),
                       true, BOARD_LCD_WIDTH - 8);
 }
 
@@ -685,6 +713,46 @@ static void format_shutter(char *text, size_t size, unsigned value)
 
 static void draw_settings_panel(uint16_t *pixels)
 {
+    if (atomic_load(&extra_menu_active)) {
+        menu_view_t rows[CAMERA_EXTRA_COUNT];
+        portENTER_CRITICAL(&menu_mux);
+        memcpy(rows, menu_view + 7, sizeof(rows));
+        portEXIT_CRITICAL(&menu_mux);
+        unsigned selected = atomic_load(&extra_menu_selected);
+        for (int y = 0; y < BOARD_LCD_HEIGHT; ++y)
+            for (int x = 768; x < BOARD_LCD_WIDTH; ++x)
+                pixels[y * BOARD_LCD_WIDTH + x] = x == 768 ? 0x7bef : 0x0841;
+        draw_text(pixels, 776, 8, atomic_load(&sim_active) ? "SIM ASPECT / MORE" : "ASPECT / MORE", 20, 0xffff);
+        for (unsigned i = 0; i <= CAMERA_EXTRA_COUNT; ++i) {
+            int top = 44 + (int)i * 44;
+            if (selected == i)
+                for (int y = top - 4; y < top + 36; ++y)
+                    for (int x = 769; x < BOARD_LCD_WIDTH; ++x) pixels[y * BOARD_LCD_WIDTH + x] = 0x1947;
+            char text[40];
+            if (i == CAMERA_EXTRA_COUNT) snprintf(text, sizeof(text), "EXIT (A return)");
+            else camera_extra_format(i, atomic_load(&prop_extra[i]), text, sizeof(text));
+            ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, 776, top, text,
+                          fit_font_size(text, 18, 240, true),
+                          i == CAMERA_EXTRA_COUNT ? 0xffff : rows[i].writable ? 0xffe0 : 0x7bef,
+                          true, 1016);
+        }
+        if (selected < CAMERA_EXTRA_COUNT) {
+            menu_view_t v = rows[selected];
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            unsigned status = v.status == 1 || (uint32_t)(now - v.status_ms) < 3000 ? v.status : 0;
+            draw_text(pixels, 776, 510, status ? command_status(status) : v.writable ? "LEFT / RIGHT" : "UNAVAILABLE", 16,
+                      status == 3 || status == 4 ? 0xf800 : 0x07ff);
+            if (v.target_valid) {
+                char value[40], target[48];
+                camera_extra_format(selected, v.target, value, sizeof(value));
+                snprintf(target, sizeof(target), "TO %s", value);
+                ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, 776, 542, target,
+                              fit_font_size(target, 16, 240, true), 0xffe0, true, 1016);
+            }
+        }
+        draw_capture_status(pixels);
+        return;
+    }
     board_wifi_menu_view_t wifi;
     portENTER_CRITICAL(&wifi_menu_mux); wifi = wifi_menu_view; portEXIT_CRITICAL(&wifi_menu_mux);
     if (wifi.active) {
@@ -717,7 +785,7 @@ static void draw_settings_panel(uint16_t *pixels)
         }
         return;
     }
-    char lines[17][32];
+    char lines[18][32];
     bool controller_online = atomic_load(&controller_connected);
     unsigned fps = fps_tenths > 999 ? 999 : fps_tenths;
     int rssi = atomic_load(&wifi_rssi);
@@ -727,38 +795,37 @@ static void draw_settings_panel(uint16_t *pixels)
     int ev = atomic_load(&prop_ev);
 
     unsigned battery = atomic_load(&camera_battery);
-    char battery_text[16];
     const char *sim = atomic_load(&sim_active) ? "SIM " : "";
-    if (battery > 100) snprintf(battery_text, sizeof(battery_text), "%sCAM --",sim);
-    else snprintf(battery_text, sizeof(battery_text), "%sCAM %u%%",sim,battery);
-    const char *focus_label = focus_name(atomic_load(&prop_focus));
-    snprintf(lines[0], sizeof(lines[0]), "%s FOCUS %s", battery_text, focus_label ? focus_label : "--");
-    snprintf(lines[1], sizeof(lines[1]), rssi <= -127 ? "WIFI --" : "WIFI %d DBM", rssi);
-    snprintf(lines[2], sizeof(lines[2]), "FPS %u.%u", fps / 10, fps % 10);
-    snprintf(lines[3], sizeof(lines[3]), "CAM %s", camera_model);
-    snprintf(lines[4], sizeof(lines[4]), "FW %s", camera_firmware);
+    snprintf(lines[0], sizeof(lines[0]), rssi <= -127 ? "WIFI --" : "WIFI %d DBM", rssi);
+    snprintf(lines[1], sizeof(lines[1]), "FPS %u.%u", fps / 10, fps % 10);
+    snprintf(lines[2], sizeof(lines[2]), "CAM %s", camera_model);
+    snprintf(lines[3], sizeof(lines[3]), "FW %s", camera_firmware);
+    if (battery > 100) snprintf(lines[4], sizeof(lines[4]), "%sBATTERY --",sim);
+    else snprintf(lines[4], sizeof(lines[4]), "%sBATTERY %u%%",sim,battery);
     format_exposure_mode(lines[5], sizeof(lines[5]), atomic_load(&exposure_mode));
-    format_shutter(lines[6], sizeof(lines[6]), shutter);
-    if (aperture >= 0xfffd) snprintf(lines[7], sizeof(lines[7]), "APERTURE --");
-    else snprintf(lines[7], sizeof(lines[7]), "APERTURE F%u.%02u", aperture / 100, aperture % 100);
-    if (iso == 0xffffffff || iso == 0x00ffffff) snprintf(lines[8], sizeof(lines[8]), "ISO AUTO");
-    else snprintf(lines[8], sizeof(lines[8]), "ISO %u", iso & 0x00ffffff);
-    if (ev == INT32_MIN) snprintf(lines[9], sizeof(lines[9]), "EV --");
+    format_named_value(lines[6], sizeof(lines[6]), "FOCUS", atomic_load(&prop_focus), 0xffff, focus_name);
+    format_shutter(lines[7], sizeof(lines[7]), shutter);
+    if (aperture >= 0xfffd) snprintf(lines[8], sizeof(lines[8]), "APERTURE --");
+    else snprintf(lines[8], sizeof(lines[8]), "APERTURE F%u.%02u", aperture / 100, aperture % 100);
+    if (iso == 0xffffffff || iso == 0x00ffffff) snprintf(lines[9], sizeof(lines[9]), "ISO AUTO");
+    else snprintf(lines[9], sizeof(lines[9]), "ISO %u", iso & 0x00ffffff);
+    if (ev == INT32_MIN) snprintf(lines[10], sizeof(lines[10]), "EV --");
     else {
         unsigned magnitude = ev < 0 ? (unsigned)(-(int64_t)ev) : (unsigned)ev;
-        snprintf(lines[9], sizeof(lines[9]), "EV %c%u.%u", ev < 0 ? '-' : '+',
+        snprintf(lines[10], sizeof(lines[10]), "EV %c%u.%u", ev < 0 ? '-' : '+',
                  magnitude / 1000, (magnitude % 1000) / 100);
     }
-    format_named_value(lines[10], sizeof(lines[10]), "WB", atomic_load(&prop_wb), 0xffff, white_balance_name);
-    format_named_value(lines[11], sizeof(lines[11]), "FOCUS", atomic_load(&prop_focus), 0xffff, focus_name);
+    format_named_value(lines[11], sizeof(lines[11]), "WB", atomic_load(&prop_wb), 0xffff, white_balance_name);
     format_named_value(lines[12], sizeof(lines[12]), "METER", atomic_load(&prop_meter), 0xffff, meter_name);
     format_named_value(lines[13], sizeof(lines[13]), "FLASH", atomic_load(&prop_flash), 0xffff, flash_name);
-    snprintf(lines[14], sizeof(lines[14]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
-    snprintf(lines[15], sizeof(lines[15]), "WI-FI >  (A enter)");
+    snprintf(lines[14], sizeof(lines[14]), "ASPECT / MORE (A enter)");
+    snprintf(lines[15], sizeof(lines[15]), "DS4 %s", controller_online ? "CONNECTED" : "DISCONNECTED");
+    snprintf(lines[16], sizeof(lines[16]), "WI-FI >  (A enter)");
     unsigned maintenance=atomic_load(&maint_menu_state);
-    snprintf(lines[16],sizeof(lines[16]),"%s",maintenance==1?"STOP LIVE? PRESS A AGAIN":
+    snprintf(lines[17],sizeof(lines[17]),"%s",maintenance==1?"STOP LIVE? PRESS A AGAIN":
         maintenance==2?"MAINTENANCE WAIT...":maintenance==3?"MAINTENANCE ON (A off)":
         maintenance==4?"MAINTENANCE FAILED":"MAINTENANCE (A enter)");
+
 
     /* The thumbnail occupies 768x432; the lower strip holds extra properties. */
     for (int y = 432; y < BOARD_LCD_HEIGHT; ++y)
@@ -777,21 +844,22 @@ static void draw_settings_panel(uint16_t *pixels)
     memcpy(rows, menu_view, sizeof(rows));
     portEXIT_CRITICAL(&menu_mux);
     unsigned selected = board_7b_menu_selected();
-    static const unsigned line_indices[7] = {6, 7, 8, 9, 10, 11, 12};
-    const int left = 768, padding = 8, line_height = 30;
+    static const unsigned line_indices[7] = {7, 8, 9, 10, 11, 6, 12};
+    const int left = 768, padding = 8, line_height = 28;
     for (int y = 0; y < BOARD_LCD_HEIGHT; ++y)
         for (int x = left; x < BOARD_LCD_WIDTH; ++x)
             pixels[y * BOARD_LCD_WIDTH + x] = x == left ? 0x7bef : 0x0841;
-    for (int i = 0; i < 17; ++i) {
+    for (int i = 0; i < 18; ++i) {
         int menu_index = -1;
         for (unsigned j = 0; j < 7; ++j) if (line_indices[j] == (unsigned)i) menu_index = (int)j;
-        bool highlight = (menu_index >= 0 && (unsigned)menu_index == selected) || (i == 15 && selected == 7) || (i==16 && selected==8);
+        bool highlight = (menu_index >= 0 && (unsigned)menu_index == selected) || (i == 16 && selected == 7) || (i==17 && selected==8) || (i==14 && selected==9);
         if (highlight) {
             for (int y = 10 + i * line_height; y < 10 + (i + 1) * line_height; ++y)
                 for (int x = left + 1; x < BOARD_LCD_WIDTH; ++x) pixels[y * BOARD_LCD_WIDTH + x] = 0x1947;
         }
-        uint16_t color = i == 14 ? (controller_online ? 0x07e0 : 0xf800) :
-                         i == 0 ? (*sim ? 0xffe0 : battery <= 20 ? 0xf800 : 0x07ff) : i >= 5 ? 0xffe0 : 0xffff;
+        uint16_t color = i == 15 ? (controller_online ? 0x07e0 : 0xf800) :
+                         i == 4 ? (*sim ? 0xffe0 : battery <= 20 ? 0xf800 : 0xffff) :
+                         i == 0 && rssi > -127 && rssi < -75 ? 0xffe0 : i >= 5 ? 0xffe0 : 0xffff;
         if (menu_index >= 0 && !rows[menu_index].writable) color = 0x7bef;
         ui_fonts_draw(pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT, left + padding,
                       12 + i * line_height, lines[i],
@@ -1013,6 +1081,8 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
                 if (settings) draw_settings_panel(jpeg_pixels);
                 else draw_preview_status(jpeg_pixels);
                 draw_maintenance_notice(jpeg_pixels);
+                if (!settings) ui_overlay_record_border(jpeg_pixels, BOARD_LCD_WIDTH, BOARD_LCD_HEIGHT,
+                                                       atomic_load(&recording_state) == 2);
                 int64_t drawn = esp_timer_get_time();
                 showing_connection = false;
                 err = publish_frame(jpeg_pixels);

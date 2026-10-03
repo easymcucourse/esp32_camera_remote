@@ -1,6 +1,7 @@
 #include "camera_console.h"
 #include "camera_pair.h"
 #include "board_7b.h"
+#include "camera_settings.h"
 #include "wifi_console.h"
 #include "debug_console.h"
 #include "atom_link.h"
@@ -27,8 +28,19 @@ static bool command(int argc, char **argv)
     if (ui_preferences_command(argc,argv)) return true;
     if (lcd_sim_command(argc,argv)) return true;
     if (wifi_console_command(argc, argv)) return true;
+    if (argc == 2 && !strcmp(argv[0], "extra") && !strcmp(argv[1], "status")) {
+        debug_printf("[dbg] OK extra active=%d selected=%u\n",
+                     board_7b_extra_menu_active(), board_7b_menu_selected());
+        for (unsigned i = 0; i < CAMERA_EXTRA_COUNT; ++i) {
+            board_extra_status_t v;
+            board_7b_get_extra_status(i, &v);
+            debug_printf("[dbg] extra code=0x%04x actual=0x%08lx writable=%d status=%u target_valid=%d target=0x%08lx\n",
+                camera_extra_codes[i],(unsigned long)v.actual,v.writable,v.status,v.target_valid,(unsigned long)v.target);
+        }
+        return true;
+    }
     if (argc == 1 && !strcmp(argv[0], "help")) {
-        debug_printf("[dbg] OK help: version; status; log <tag|*> <level>; i2c log on|off|changes; i2c stats [reset]; display fault off|once|persistent; j / s / S / p / u; wifi show [password]; wifi set <field> <value>...; wifi display on|off; wifi newpass; factory wifi|all|confirm\n");
+        debug_printf("[dbg] OK help: version; status; extra status; log <tag|*> <level>; i2c log on|off|changes; i2c stats [reset]; display fault off|once|persistent; j / s / S / p / u; wifi show [password]; wifi set <field> <value>...; wifi display on|off; wifi newpass; factory wifi|all|confirm\n");
         debug_printf("[dbg] ui: info [full|compact|hidden|next] (saved); DS4 touchpad cycles LIVE information\n");
         debug_printf("[dbg] maint: on [stop]|off|status; connection Share hold 2s; SETTINGS MAINTENANCE double A; web uses LCD PIN\n");
 #if CONFIG_REMOTE_DBG_SIM
@@ -55,6 +67,7 @@ static bool command(int argc, char **argv)
         debug_printf("[dbg] ota running=%s state=%s\n",running?running->label:"unknown",maint_ota_boot_status());
         debug_printf("[dbg] ui info=%s\n",ui_info_name(ui_preferences_level()));
         gamepad_caps_t caps;camera_gamepad_caps(&caps);
+        debug_printf("[dbg] record known=%d recording=%d pending=%d\n",caps.recording_known,caps.recording,caps.record_pending);
         debug_printf("[dbg] controls pad_type=%s lens=%u zoom_known=%d zoom_enabled=%d zoom_available=%d\n",
             ui_preferences_pad()?"xbox":"ds",caps.lens,caps.zoom_known,caps.zoom_enabled,gamepad_zoom_available(&caps));
         debug_printf("[dbg] heap min_internal=%u min_psram=%u largest_internal=%u largest_psram=%u\n",

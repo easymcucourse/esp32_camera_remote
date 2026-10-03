@@ -1,6 +1,6 @@
 # ESP32-S3 Sony ZV-E10 Wi-Fi Remote
 
-使用 ESP32-S3 创建 Wi-Fi 热点，通过 PTP/IP 连接 Sony ZV-E10，将实时取景显示在 Waveshare ESP32-S3-Touch-LCD-7B 上。M5Stack ATOM Matrix 通过蓝牙连接 DualShock 4，再通过 I²C 向 LCD 上报手柄状态及按键事件。基于 ESP-IDF 5.5.1，当前支持配对、重连、连续取景、参数显示和曝光 Mode 切换；拍照、录像、变焦和七项菜单控制已接入代码，实际相机效果待逐项验收。
+使用 ESP32-S3 创建 Wi-Fi 热点，通过 PTP/IP 连接 Sony ZV-E10，将实时取景显示在 Waveshare ESP32-S3-Touch-LCD-7B 上。M5Stack ATOM Matrix 通过蓝牙连接 DualShock 4，再通过 I²C 向 LCD 上报手柄状态及按键事件。基于 ESP-IDF 5.5.1，当前支持配对、重连、连续取景、参数显示和曝光 Mode 切换；拍照、录像、变焦、七项主参数及九项扩展参数菜单已接入代码。视频模式下录像启停、录像红框与连续取景、Aspect 改值已完成本轮实测；其他相机效果仍待逐项验收。
 
 ## 功能与实测
 
@@ -9,7 +9,8 @@
 - 读取取景对象 `0xFFFFC002`，以 1024×576 原尺寸居中显示。
 - CPU0 接收，CPU1 独立任务使用 ESP32-S3 SIMD JPEG 解码。
 - 两个 1MiB 接收缓冲、LCD 双帧缓冲、30 行 DMA bounce buffer。
-- 右上角显示相机电量、对焦模式、Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、曝光模式和 DS4 连接状态（屏幕不显示手柄电量）；设置界面底部也显示 DS4 状态，连接绿色、断开红色。
+- LIVE 与 SETTINGS 前七行英文信息依次为 WIFI、FPS、CAM、FW、BATTERY、MODE、FOCUS。SETTINGS 另显示 DS4 状态，连接绿色、断开红色；LCD 不显示手柄电量。
+- SETTINGS 新增 ASPECT / MORE，按 A 进入扩展参数，左右按相机完整枚举循环切换；EXIT+A 或 B 返回。录像时 LIVE 显示四像素红框。
 - Start（DS4 Options）或串口 `S` 切换预览和设置界面；当前映射为 Y 切曝光 Mode、X 切对焦模式、L1/R1 变焦或条件手动对焦，已烧录，待相机效果验收。
 - ATOM 在蓝牙输入回调中缓存最多 128 次按键位图变化，LCD 确认后删除事件，并按事件 ID 去重，保留短按和连续按键。
 - Inter、思源黑体和 JetBrains Mono 字体使用 FreeType 灰度抗锯齿渲染，字体资源和许可证随工程提交。
@@ -19,7 +20,7 @@
 
 当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 标准电池服务已接入并读到 Ultimate 2 的 88%；云台真实电量来源仍待接入。
 
-最新显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**；实际相机取景窗口约 **2.8 FPS**，尚未达到性能目标。基准不代表网络取景或长期稳定性，详见 [显示实测](docs/records/display-profile-test-20261003.md)。
+显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**，见 [显示实测](docs/records/display-profile-test-20261003.md)。本轮视频模式录像期间实际连续取景约 **5.6–6.5 FPS**，用户确认红框和画面更新，实体 DS4 LT 启停也通过；照片 M 模式远程录像未通过，详见 [录像与 Aspect 实测](docs/records/record-border-aspect-test-20261003.md)。这些短窗口不证明所有模式性能或30分钟稳定性。
 
 ## 硬件与依赖
 
@@ -69,7 +70,7 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 
 ## 相机连接
 
-1. 板子启动显示 `easymcucourse camera station` 连接页面，默认 SSID **easycamctrl**、密码 **00000000** 各占一行，下面显示 ATOM、手柄和相机连接状态，信道 6。
+1. 板子启动显示 `easymcucourse camera console` 连接页面，默认 SSID **easycamctrl**、密码 **00000000** 各占一行，下面显示 ATOM、手柄和相机连接状态，信道 6。
 2. 相机连接热点，启用 PC 远程功能，选择 Wi-Fi 接入点连接。
 3. 首次连接进入配对等待画面；若提示确认，允许 **ESP32-Camera-Remote**。
 4. 页面依次显示等待相机、连接会话、配对确认和等待预览；第一帧成功解码显示后自动进入连续取景，上下各留 12 像素黑边。连接失败或取景断开后返回状态页并自动重试。
@@ -82,6 +83,8 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 
 | 命令 | 功能 |
 | --- | --- |
+| `status` | 相机/手柄/显示状态，以及录像 known、recording、pending 回读 |
+| `extra status` | Aspect 等九项参数的实际值、可写状态、待确认目标与结果 |
 | `j` | 开始／恢复取景，已运行时忽略重复请求 |
 | `S` | 切换设置显示模式：左侧 768×432 缩略图，右侧显示模式、ISO、快门、光圈、EV、白平衡、对焦、测光和闪光状态 |
 | `s` | 取消网络等待、清除控制请求、排空解码任务并关闭连接，保留最后画面 |
@@ -131,7 +134,7 @@ idf.py -p COM6 -b 115200 flash
 | 方向键 | SETTINGS：上下循环移动七项参数及 WI-FI 光标；左右修改参数，400 ms 后每 150 ms 重复 |
 | A / 叉、B / 圈 | A 或右方向进入 WI-FI；热点页 A 确认、B 返回 |
 
-以上映射已编译并烧录，尚待相机动作实机验收，LIVE / SETTINGS 相同。X/Y 单击切换、按住不重复；Mode / Focus 目标合并并等待相机回读确认。L1/R1 同按停止，必须两键松开后重新操作；按 X 取消当前肩键操作。
+以上映射已编译并烧录，LIVE / SETTINGS 相同；视频模式下实体 LT 录像启停已通过，其他动作仍待逐项验收。X/Y 单击切换、按住不重复；Mode / Focus 目标合并并等待相机回读确认。L1/R1 同按停止，必须两键松开后重新操作；按 X 取消当前肩键操作。
 
 肩键 MF 替代仅在镜头明确为非电动变焦且相机为 MF 时启用：首步立即发送，400 ms 后每 150 ms 请求一步。即使数字变焦可用，此条件下也优先对焦。目前没有已验证的镜头类型来源，运行时类型未知，不启用这一分支；不能用变焦不可用推断镜头类型。详情见 [手柄需求](docs/request/gamepad-request.md)。
 

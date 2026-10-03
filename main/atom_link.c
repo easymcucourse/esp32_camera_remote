@@ -34,6 +34,23 @@ static uint32_t input_now_ms(void)
 static bool input_action(void *context, pad_action_t action)
 {
     (void)context;
+    if (board_7b_settings_mode() && board_7b_extra_menu_active()) {
+        if (action.type == PAD_ACTION_MENU_MOVE) { board_7b_extra_menu_move(action.value); return true; }
+        if (action.type == PAD_ACTION_MENU_BACK ||
+            (action.type == PAD_ACTION_MENU_CONFIRM && board_7b_extra_menu_exit_selected())) {
+            board_7b_extra_menu_open(false); return true;
+        }
+        if (action.type == PAD_ACTION_MENU_CONFIRM) return true;
+        if (action.type == PAD_ACTION_MENU_STEP) {
+            if (board_7b_extra_menu_exit_selected()) return true;
+            gamepad_caps_t caps; camera_gamepad_caps(&caps);
+            return !caps.session || camera_gamepad_action(action);
+        }
+    }
+    if (board_7b_settings_mode() && !wifi_menu_ui_active() && board_7b_menu_selected() == 9 &&
+        action.type == PAD_ACTION_MENU_CONFIRM) { board_7b_extra_menu_open(true); return true; }
+    if (board_7b_settings_mode() && !board_7b_extra_menu_active() && !wifi_menu_ui_active() &&
+        board_7b_menu_selected() == 9 && action.type == PAD_ACTION_MENU_STEP) return true;
     if (!wifi_menu_ui_active()) {
         bool requested=action.type==PAD_ACTION_MAINT_TOGGLE ||
             (board_7b_settings_mode() && board_7b_menu_selected()==8 &&

@@ -4,10 +4,16 @@
 
 const uint16_t camera_menu_codes[CAMERA_MENU_COUNT] = {
     SONY_DPC_SHUTTER_SPEED, SONY_DPC_F_NUMBER, SONY_DPC_ISO, SONY_DPC_EXPOSURE_BIAS,
-    SONY_DPC_WHITE_BALANCE, SONY_DPC_FOCUS_MODE, SONY_DPC_METERING
+    SONY_DPC_WHITE_BALANCE, SONY_DPC_FOCUS_MODE, SONY_DPC_METERING,
+    0xd211, 0x5013, 0xd21b, 0xd201, 0xd22c, 0xd262, 0xd20f, 0xd21c, 0xd210
 };
-static const uint16_t types[CAMERA_MENU_COUNT] = {6, 4, 6, 3, 4, 4, 4};
-typedef struct { sony_mode_state_t states[CAMERA_MENU_COUNT]; bool seen[CAMERA_MENU_COUNT], duplicate; } snapshot_t;
+/* Primary properties have fixed types; extras use their validated descriptor type. */
+static const uint16_t types[MENU_ASPECT] = {6, 4, 6, 3, 4, 4, 4};
+typedef struct {
+    sony_mode_state_t states[CAMERA_MENU_COUNT];
+    uint16_t types[CAMERA_MENU_COUNT];
+    bool seen[CAMERA_MENU_COUNT], duplicate;
+} snapshot_t;
 static void collect(void *context, const sony_property_desc_t *d)
 {
     snapshot_t *snapshot = context;
@@ -15,7 +21,8 @@ static void collect(void *context, const sony_property_desc_t *d)
         if (d->code != camera_menu_codes[i]) continue;
         if (snapshot->seen[i]) { snapshot->duplicate = true; return; }
         snapshot->seen[i] = true;
-        if (d->type != types[i] || !d->scalar) return;
+        if (!d->scalar || d->type < 1 || d->type > 6 || (i < MENU_ASPECT && d->type != types[i])) return;
+        snapshot->types[i] = d->type;
         sony_mode_state_t *s = &snapshot->states[i];
         s->current = d->value;
         s->writable = d->writable;
@@ -70,6 +77,8 @@ bool camera_menu_snapshot(camera_menu_t *menu, const uint8_t *data, size_t size,
     for (unsigned i = 0; i < CAMERA_MENU_COUNT; ++i) {
         camera_menu_item_t *s = &menu->items[i];
         sony_mode_state_t *state = &snapshot.states[i];
+        if (s->type && s->type != snapshot.types[i] && (s->control.dirty || s->control.awaiting))
+            setting_control_response(&s->control, false);
         bool relative = i <= MENU_APERTURE && !state->count;
         if (s->relative != relative) {
             bool pending = s->remaining || s->awaiting || s->control.dirty || s->control.awaiting;
@@ -77,7 +86,7 @@ bool camera_menu_snapshot(camera_menu_t *menu, const uint8_t *data, size_t size,
             if (pending) setting_control_response(&s->control, false);
         }
         s->relative = relative; s->actual = state->current;
-        s->type = types[i]; s->writable = state->writable && (relative || state->count >= 2);
+        s->type = snapshot.types[i]; s->writable = state->writable && (relative || state->count >= 2);
         setting_control_snapshot(&s->control, state, now);
         if (relative) {
             if (!s->writable && (s->awaiting || s->remaining)) discard_relative(s, SETTING_REJECTED);

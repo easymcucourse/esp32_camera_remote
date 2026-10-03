@@ -93,7 +93,7 @@ static void worker(void *arg)
             if (err!=ESP_OK) atomic_store(&uploading,false);
             atomic_store(&upload_error,err);atomic_store(&upload_reply,true);
         }
-        if (!board_7b_settings_mode() || board_7b_menu_selected()!=8) maint_confirm_cancel(&confirmation);
+        if (!board_7b_settings_mode() || board_7b_extra_menu_active() || board_7b_menu_selected()!=8) maint_confirm_cancel(&confirmation);
         maint_confirm_tick(&confirmation,now_ms(),atomic_load(&input_epoch));
         request_t request;
         if (xQueueReceive(requests,&request,pdMS_TO_TICKS(100))) {
@@ -103,7 +103,7 @@ static void worker(void *arg)
                 else if (request.action==4) {
                     if (board_7b_settings_mode() || atomic_load(&camera_session)) err=ESP_ERR_INVALID_STATE;
                     else err=atomic_load(&on)?disable():enable(false);
-                } else if (!board_7b_settings_mode() || board_7b_menu_selected()!=8) err=ESP_ERR_INVALID_STATE;
+                } else if (!board_7b_settings_mode() || board_7b_extra_menu_active() || board_7b_menu_selected()!=8) err=ESP_ERR_INVALID_STATE;
                 else if (atomic_load(&on)) err=disable();
                 else if (maint_confirm_press(&confirmation,now_ms(),request.epoch)) {
                     board_7b_set_maint_menu(2);err=enable(true);
@@ -191,7 +191,7 @@ bool maint_mode_gamepad(pad_action_t action)
         action.type==PAD_ACTION_MENU_MOVE || action.type==PAD_ACTION_MENU_BACK)
         atomic_fetch_add(&input_epoch,1);
     bool toggle=action.type==PAD_ACTION_MAINT_TOGGLE;
-    bool menu=board_7b_settings_mode() && board_7b_menu_selected()==8;
+    bool menu=board_7b_settings_mode() && !board_7b_extra_menu_active() && board_7b_menu_selected()==8;
     if (!toggle && !(menu && (action.type==PAD_ACTION_MENU_CONFIRM || action.type==PAD_ACTION_MENU_STEP))) return false;
     if (action.type==PAD_ACTION_MENU_STEP) return true; /* Repeat must never confirm STOP LIVE. */
     uint32_t token;esp_err_t err=enqueue(toggle?4:3,&token);

@@ -588,7 +588,7 @@ static bool read_liveview(int command, int event, uint32_t *next_transaction)
                 if (steps) setting_control_step(&mode_control, steps);
                 if (focus_steps) camera_menu_step(&menu, MENU_FOCUS, focus_steps, true);
                 for (unsigned i = 0; i < CAMERA_MENU_COUNT; ++i)
-                    if (edits[i]) camera_menu_step(&menu, i, edits[i], false);
+                    if (edits[i]) camera_menu_step(&menu, i, edits[i], true);
             } else cancel_pending_settings();
             publish_setting_status();
             next_exposure_read = esp_timer_get_time() + 5000000;
