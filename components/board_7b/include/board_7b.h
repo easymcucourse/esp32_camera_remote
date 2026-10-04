@@ -20,6 +20,8 @@ void board_7b_set_wifi_info(const char *ssid, const char *password, bool show_pa
 void board_7b_refresh_wifi_info(void); /* Nonblocking notification to the render worker. */
 // Refresh connection-screen peripheral status; Atom loss also disconnects DS4.
 void board_7b_set_atom_status(bool atom_online, bool controller_online);
+/* Battery is the input protocol's 0..10 level, or 255 unknown. */
+void board_7b_set_controller_battery(unsigned level, bool xbox);
 void board_7b_set_atom_protocol(bool mismatch, unsigned gimbal_link_state);
 // Live-view status shown in the upper-right corner.
 void board_7b_set_wifi_rssi(int rssi);
@@ -59,7 +61,7 @@ esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length);
 esp_err_t board_7b_recover_display(void);
 /* Fatal recovery failure; app_main drains the camera and restarts on internal stack. */
 bool board_7b_display_failed(void);
-typedef struct { unsigned fps_tenths, battery, focus; bool settings, failed, default_password; } board_status_t;
+typedef struct { unsigned fps_tenths, battery, focus; int32_t ev; bool settings, failed, default_password; } board_status_t;
 void board_7b_get_status(board_status_t *out);
 esp_err_t board_7b_test_display_fault(unsigned mode);
 /* Developer-only synthetic input; caller must own the drained camera lease.

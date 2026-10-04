@@ -60,17 +60,34 @@ int main(void)
     expect(2, PAD_ACTION_S2, 0); expect(3, PAD_ACTION_S1, 0);
 
     start(); snapshot(0, 100, 1); snapshot(100, 100, 2);
-    snapshot(100, 0, 3); assert(count == 1);
-    snapshot(0, 0, 4); assert(count == 2); expect(1, PAD_ACTION_S1, 0);
-    /* LT full emits a single explicit recording target. */
+    snapshot(100, 0, 3); assert(count == 2); expect(1, PAD_ACTION_S1, 0);
+    snapshot(0, 0, 4); assert(count == 2);
+    /* LT half has no focus action; full emits only one recording target. */
+    start(); snapshot(77, 0, 1); snapshot(229, 0, 2);
+    snapshot(51, 0, 3); snapshot(0, 0, 4); assert(count == 0);
     start(); snapshot(255, 0, 1); snapshot(255, 0, 2);
-    assert(count == 2); expect(0, PAD_ACTION_S1, 1); expect(1, PAD_ACTION_RECORD, 1);
+    assert(count == 1); expect(0, PAD_ACTION_RECORD, 1);
     caps.record_pending = true; snapshot(100, 0, 3); snapshot(255, 0, 4);
-    expect(2, PAD_ACTION_RECORD_UNAVAILABLE, 0);
+    expect(1, PAD_ACTION_RECORD_UNAVAILABLE, 0);
     caps.record_pending = false; caps.recording = true;
-    snapshot(100, 0, 5); snapshot(255, 0, 6); expect(3, PAD_ACTION_RECORD, 0);
+    snapshot(100, 0, 5); snapshot(255, 0, 6); expect(2, PAD_ACTION_RECORD, 0);
     caps.recording_known = false; snapshot(100, 0, 7); snapshot(255, 0, 8);
-    expect(4, PAD_ACTION_RECORD_UNAVAILABLE, 0);
+    expect(3, PAD_ACTION_RECORD_UNAVAILABLE, 0);
+    snapshot(0, 0, 9); assert(count == 4); /* LT release cannot emit S1. */
+    /* LT recording and release cannot release RT's held focus. */
+    start(); snapshot(0, 100, 1); snapshot(255, 100, 2); snapshot(0, 100, 3);
+    assert(count == 2); expect(0, PAD_ACTION_S1, 1); expect(1, PAD_ACTION_RECORD, 1);
+    snapshot(0, 0, 4); assert(count == 3); expect(2, PAD_ACTION_S1, 0);
+
+    /* LT full hysteresis never presses focus; RT releases even with LT held. */
+    start(); snapshot(229, 0, 1); assert(count == 0);
+    snapshot(230, 0, 2); expect(0, PAD_ACTION_RECORD, 1);
+    snapshot(204, 0, 3); snapshot(229, 0, 4); assert(count == 1);
+    snapshot(203, 0, 5); snapshot(230, 0, 6);
+    assert(count == 2); expect(1, PAD_ACTION_RECORD, 1);
+    snapshot(255, 100, 7); expect(2, PAD_ACTION_S1, 1);
+    snapshot(255, 0, 8); expect(3, PAD_ACTION_S1, 0);
+    snapshot(0, 0, 9); assert(count == 4);
 
     /* Bringing pressed triggers online or opening a session cannot shoot. */
     start(); gamepad_input_offline(&s); pad.lt = pad.rt = 255;

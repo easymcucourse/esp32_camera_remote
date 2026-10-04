@@ -22,9 +22,43 @@ static void property(unsigned index, uint8_t enabled, uint32_t actual, const uin
 }
 static void one(unsigned index, uint8_t enabled, uint32_t actual, const uint32_t *choices, unsigned count)
 { begin(); property(index, enabled, actual, choices, count); }
+static void test_ev_direction(void)
+{
+    const uint32_t orders[][3] = {{0xfc18, 0, 1000}, {1000, 0, 0xfc18}, {0, 1000, 0xfc18}};
+    const struct { uint32_t current; int direction; uint32_t target; } cases[] = {
+        {0xfc18, 1, 0}, {0, 1, 1000}, {1000, -1, 0}, {0, -1, 0xfc18},
+        {1000, 1, 0xfc18}, {0xfc18, -1, 1000},
+    };
+    for (unsigned order = 0; order < 3; ++order) {
+        for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            camera_menu_t menu = {0}; camera_menu_write_t write;
+            one(MENU_EV, 1, cases[i].current, orders[order], 3);
+            assert(camera_menu_snapshot(&menu, data, used, 0));
+            assert(camera_menu_step(&menu, MENU_EV, cases[i].direction, true));
+            assert(camera_menu_next(&menu, MENU_EV, 1, &write));
+            assert(write.type == 3 && write.value == cases[i].target);
+        }
+    }
+    /* Merge around the desired EV while awaiting readback, even if the
+     * next snapshot reports the same choices in a different order. */
+    camera_menu_t menu = {0}; camera_menu_write_t write;
+    one(MENU_EV, 1, 0, orders[1], 3);
+    assert(camera_menu_snapshot(&menu, data, used, 0));
+    assert(camera_menu_step(&menu, MENU_EV, 1, true));
+    assert(camera_menu_next(&menu, MENU_EV, 1, &write) && write.value == 1000);
+    camera_menu_response(&menu, MENU_EV, true);
+    assert(camera_menu_step(&menu, MENU_EV, 1, true));
+    one(MENU_EV, 1, 0, orders[2], 3);
+    assert(camera_menu_snapshot(&menu, data, used, 2));
+    assert(!camera_menu_next(&menu, MENU_EV, 2, &write));
+    one(MENU_EV, 1, 1000, orders[0], 3);
+    assert(camera_menu_snapshot(&menu, data, used, 3));
+    assert(camera_menu_next(&menu, MENU_EV, 3, &write) && write.value == 0xfc18);
+}
 int main(int argc, char **argv)
 {
     assert(argc == 2);
+    test_ev_direction();
     camera_menu_t menu = {0}; camera_menu_write_t write; uint32_t target;
     uint32_t choices[] = {100, 200, 400, 800};
     one(MENU_ISO, 1, 200, choices, 4);

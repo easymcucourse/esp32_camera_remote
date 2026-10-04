@@ -1,6 +1,6 @@
 # 文档总览
 
-本目录收录使用手册、开发文档、需求、设计、工具用法和实测记录。当前源码状态与本次不一致核对见 [实施状态](development/implementation-status.md#代码与文档核对2026-10-03)；历史记录保留当时结论。项目概况见根目录 [README](../README.md)，ATOM 子项目见 [m5_atom_matrix/README.md](../m5_atom_matrix/README.md)。
+本目录收录使用手册、开发文档、需求、设计、工具用法和实测记录。当前源码与验证边界见 [最新实施状态](development/implementation-status.md#latest-20261004)；历史记录保留当时结论。项目概况见根目录 [README](../README.md)，ATOM 子项目见 [m5_atom_matrix/README.md](../m5_atom_matrix/README.md)。
 
 ## 开发环境
 
@@ -227,3 +227,9 @@ docs/
 恢复后的 BLE / OTA 增量与验证边界见 [恢复实测记录](records/resume-ble-ota-test-20261003.md)。
 
 - [手柄类型选择与电动变焦记录](records/controller-mode-zoom-20261003.md)
+- [LT 独立录像映射实测](records/lt-record-only-test-20261004.md)
+- [LCD 手柄电量位置实测](records/lcd-pad-battery-test-20261004.md)
+- [MORE 与电量颜色烧录](records/more-battery-color-flash-20261004.md)
+- [EV 方向实测](records/ev-direction-test-20261004.md)
+- [LT 完整状态清理与烧录](records/lt-record-regression-20261004.md)
+- [新版录像失败日志分析](records/record-failure-log-20261004.md)

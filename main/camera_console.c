@@ -68,6 +68,7 @@ static bool command(int argc, char **argv)
         debug_printf("[dbg] ui info=%s\n",ui_info_name(ui_preferences_level()));
         gamepad_caps_t caps;camera_gamepad_caps(&caps);
         debug_printf("[dbg] record known=%d recording=%d pending=%d\n",caps.recording_known,caps.recording,caps.record_pending);
+        debug_printf("[dbg] ev actual=%ld (milli-EV; unknown=-2147483648)\n",(long)board.ev);
         debug_printf("[dbg] controls pad_type=%s lens=%u zoom_known=%d zoom_enabled=%d zoom_available=%d\n",
             ui_preferences_pad()?"xbox":"ds",caps.lens,caps.zoom_known,caps.zoom_enabled,gamepad_zoom_available(&caps));
         debug_printf("[dbg] heap min_internal=%u min_psram=%u largest_internal=%u largest_psram=%u\n",

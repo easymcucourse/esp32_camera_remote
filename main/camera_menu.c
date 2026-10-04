@@ -14,6 +14,24 @@ typedef struct {
     uint16_t types[CAMERA_MENU_COUNT];
     bool seen[CAMERA_MENU_COUNT], duplicate;
 } snapshot_t;
+static int32_t ev_value(uint32_t wire)
+{
+    return wire <= INT16_MAX ? (int32_t)wire : (int32_t)wire - 65536;
+}
+static void order_ev_choices(sony_mode_state_t *state)
+{
+    /* Right increases signed EV regardless of the camera's enum order.
+     * Keep original 16-bit wire patterns for absolute writes/readback. */
+    for (unsigned i = 1; i < state->count; ++i) {
+        uint32_t value = state->values[i];
+        unsigned j = i;
+        while (j && ev_value(state->values[j - 1]) > ev_value(value)) {
+            state->values[j] = state->values[j - 1];
+            --j;
+        }
+        state->values[j] = value;
+    }
+}
 static void collect(void *context, const sony_property_desc_t *d)
 {
     snapshot_t *snapshot = context;
@@ -29,6 +47,7 @@ static void collect(void *context, const sony_property_desc_t *d)
         if (d->form == 2 && d->choice_count <= 64) {
             s->count = d->choice_count;
             for (unsigned j = 0; j < s->count; ++j) sony_descriptor_choice(d, j, &s->values[j]);
+            if (i == MENU_EV) order_ev_choices(s);
         }
         if (d->form == 2 && d->choice_count > 64) s->writable = false;
         /* No guessed shutter/aperture tables: relative commands can operate

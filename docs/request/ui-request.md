@@ -26,15 +26,15 @@ stateDiagram-v2
 
 ## 状态栏
 
-**当前实现**（LIVE 右上角）：从上到下为 Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、相机电量、曝光模式、对焦模式，英文标签依次为 `WIFI`、`FPS`、`CAM`、`FW`、`BATTERY`、`MODE`、`FOCUS`，共七行。FPS 初始显示 0.0，约 1 秒后得到统计值，暂停时保留最后读数。
+**当前实现**（LIVE 右上角）：从上到下为 Wi-Fi RSSI、实际 FPS、相机型号、相机固件版本、相机电量、手柄电量、曝光模式、对焦模式，英文标签依次为 `WIFI`、`FPS`、`CAM`、`FW`、`BATTERY`、`DS4:`（Xbox 兼容来源为 `XBOX:`）、`MODE`、`FOCUS`，共八行。FPS 初始显示 0.0，约 1 秒后得到统计值，暂停时保留最后读数。
 
 **状态条目及实现边界：**
 
 | 项目 | 显示 | 来源 / 当前状态 |
 | --- | --- | --- |
-| 手柄电量 | 屏幕不显示 | 2026-10-03 用户调整：移至 Matrix，DS / BLE 手柄分别用第一 / 第二行 |
-| 相机电量 | LIVE 与 SETTINGS 右侧第五行 `BATTERY 75%` | `0xD218`；未知显示 `--`，≤20% 红色，视觉待验收 |
-| 对焦模式 | LIVE 与 SETTINGS 右侧第七行 `FOCUS MF` / `FOCUS AF-S` 等，SETTINGS 该行可编辑 | `0x500A`；对焦框与 `MF BOX` 仍规划 |
+| 手柄电量 | LIVE 与 SETTINGS 的 BATTERY 下一行，如 `DS4: 80%`；未知或断连显示 `DS4: --`，>50% 绿、21–50% 黄、≤20% 红，未知灰 | 2026-10-04 用户新增 LCD 手柄信息；ATOM I²C 电量 0–10 档乘 10 为估算百分比，Xbox 兼容来源显示 `XBOX:`，无有效电量显示 `--`。Matrix 第一 / 第二行保留 |
+| 相机电量 | LIVE 与 SETTINGS 右侧第五行 `BATTERY 75%` | `0xD218`；未知显示 `--`，>50% 绿、21–50% 黄、≤20% 红，未知灰，视觉待验收 |
+| 对焦模式 | LIVE 与 SETTINGS 右侧第八行 `FOCUS MF` / `FOCUS AF-S` 等，SETTINGS 该行可编辑 | `0x500A`；对焦框与 `MF BOX` 仍规划 |
 | 录像 | 红点 `REC` + 已录时长；LIVE 外侧四像素红框 | `0xD21D`；红框跟随回读录像状态，在所有 LIVE 信息档位可见；停止回读后下一帧清除。2026-10-03 视频模式红框和连续取景经用户确认，其他档位视觉仍待验收，见[实测记录](../records/record-border-aspect-test-20261003.md) |
 | 变焦 | 当前倍率；变焦中显示变焦条 | `0xD25C` / `0xD25D` |
 | 对焦放大 | `MAG` + 当前倍率 | `0xD22F` |
@@ -79,7 +79,8 @@ stateDiagram-v2
 
 **已接入，待实机视觉与参数效果验收：**
 
-- 菜单文字为英文；前七行依次为 WIFI、FPS、CAM、FW、BATTERY、MODE、FOCUS，与 LIVE 一致，当前光标项高亮。光标顺序跟随画面，Focus 为首个可编辑项。完整枚举左右首尾循环；无完整枚举的快门 / 光圈相对步进边界循环仍待协议支持。
+- 菜单文字为英文；移除独立 DS4 CONNECTED / DISCONNECTED 行，手柄电量行保留；前八行依次为 WIFI、FPS、CAM、FW、BATTERY、手柄电量、MODE、FOCUS，与 LIVE 一致，当前光标项高亮。光标顺序跟随画面，Focus 为首个可编辑项。完整枚举左右首尾循环；无完整枚举的快门 / 光圈相对步进边界循环仍待协议支持。
+- EV 按实际有符号数值右增大、左减小，不按相机返回枚举的原始顺序决定方向；最大按右回最小、最小按左回最大。
 - 当前曝光 Mode 下不可修改的项（例如 P 模式的光圈）显示为灰色。
 - 修改后先显示目标值和 `PENDING`，相机确认并回读后才显示为实际值；拒绝、超时或断线时恢复原值并显示原因。
 
@@ -104,4 +105,4 @@ stateDiagram-v2
 
 ## Aspect 扩展子菜单
 
-设置页选中 ASPECT / MORE 按 A 进入，包含 ASPECT、DRIVE、EFFECT、DRO、AF AREA、WL FLASH、WB TEMP、WB AB RAW、WB GM RAW。上下选择、左右循环修改相机完整枚举；只读或无完整枚举项目不可修改。底部 EXIT 按 A 返回，B也可返回，Start返回LIVE。修改需要相机确认和回读，实际功能待验收。
+设置页选中 MORE 按 A 进入，包含 ASPECT、DRIVE、EFFECT、DRO、AF AREA、WL FLASH、WB TEMP、WB AB RAW、WB GM RAW。上下选择、左右循环修改相机完整枚举；只读或无完整枚举项目不可修改。底部 EXIT 按 A 返回，B也可返回，Start返回LIVE。修改需要相机确认和回读，实际功能待验收。

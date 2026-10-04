@@ -68,4 +68,6 @@ maint on 在相机无会话时开启，允许相机继续连接；相机会话�
 
 ## 录像与扩展参数诊断
 
-`status` 的 `record known/recording/pending` 分别表示录像状态已知、实际录像中和等待确认；参数写入接受不等于回读已生效。`extra status` 显示 ASPECT / MORE 子菜单是否开启、选中ID，以及九项扩展参数的实际值、可写状态、status、target_valid和target。status编码：0空闲、1待确认、2已回读生效、3拒绝、4超时、5命令接受。
+`status` 的 `record known/recording/pending` 分别表示录像状态已知、实际录像中和等待确认；参数写入接受不等于回读已生效。`extra status` 显示 MORE 子菜单是否开启、选中ID，以及九项扩展参数的实际值、可写状态、status、target_valid和target。status编码：0空闲、1待确认、2已回读生效、3拒绝、4超时、5命令接受。
+
+`status` 的 `ev actual` 是相机实际回读的曝光补偿，单位为千分之一 EV（例如 333 约为 +0.3 EV），`-2147483648` 表示未知；用于核对左右调整是否生效。

@@ -14,7 +14,8 @@ static void release_all(gamepad_input_t *s)
     emit(s, PAD_ACTION_RELEASE_ALL, 0);
     emit(s, PAD_ACTION_MF_CANCEL, 0);
     s->s1 = s->s2 = s->trigger_armed = s->shoulder_armed = false;
-    s->lt_stage = s->rt_stage = TRIGGER_OFF;
+    s->lt_full = false;
+    s->rt_stage = TRIGGER_OFF;
     s->held_shoulder = 0;
     s->held_direction = 0;
     s->direction_armed = false;
@@ -27,7 +28,7 @@ static bool send(gamepad_input_t *s, pad_action_type_t type, int value)
     release_all(s);
     return false;
 }
-static uint8_t trigger_stage(uint8_t previous, uint8_t value)
+static uint8_t rt_trigger_stage(uint8_t previous, uint8_t value)
 {
     if (previous == TRIGGER_FULL && value >= 204) return TRIGGER_FULL;
     if (previous != TRIGGER_OFF && value >= 51) return value >= 230 ? TRIGGER_FULL : TRIGGER_HALF;
@@ -174,9 +175,10 @@ void gamepad_input_snapshot(gamepad_input_t *s, const gamepad_snapshot_t *p,
         s->select_hold=false;
         if (!send(s,PAD_ACTION_MAINT_TOGGLE,1)) return;
     }
-    unsigned old_lt = s->lt_stage;
-    s->lt_stage = trigger_stage(s->lt_stage, p->lt);
-    s->rt_stage = trigger_stage(s->rt_stage, p->rt);
+    bool old_lt_full = s->lt_full;
+    /* LT only detects recording presses, independently of RT's S1/S2 stages. */
+    s->lt_full = p->lt >= (old_lt_full ? 204 : 230);
+    s->rt_stage = rt_trigger_stage(s->rt_stage, p->rt);
     if (!caps->session) {
         shoulders(s, p->buttons, false, now);
         directions(s, p->buttons, false, now);
@@ -185,14 +187,14 @@ void gamepad_input_snapshot(gamepad_input_t *s, const gamepad_snapshot_t *p,
     if (!s->trigger_armed) {
         if (p->lt < 51 && p->rt < 51) s->trigger_armed = true;
     } else {
-        bool s1 = s->lt_stage != TRIGGER_OFF || s->rt_stage != TRIGGER_OFF;
+        bool s1 = s->rt_stage != TRIGGER_OFF;
         bool s2 = s->rt_stage == TRIGGER_FULL;
         if (s->s2 && !s2 && !send(s, PAD_ACTION_S2, 0)) return;
         if (s->s1 && !s1 && !send(s, PAD_ACTION_S1, 0)) return;
         if (!s->s1 && s1 && !send(s, PAD_ACTION_S1, 1)) return;
         if (!s->s2 && s2 && !send(s, PAD_ACTION_S2, 1)) return;
         s->s1 = s1; s->s2 = s2;
-        if (old_lt != TRIGGER_FULL && s->lt_stage == TRIGGER_FULL) {
+        if (!old_lt_full && s->lt_full) {
             if (caps->recording_known && !caps->record_pending) {
                 if (!send(s, PAD_ACTION_RECORD, !caps->recording)) return;
             } else send(s, PAD_ACTION_RECORD_UNAVAILABLE, 0);

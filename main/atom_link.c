@@ -217,6 +217,7 @@ static void atom_link_task(void *arg)
             }
             if (!online && gamepad.connected) input_offline();
             board_7b_set_atom_status(true, online); board_7b_set_atom_protocol(false, p[5]);
+            board_7b_set_controller_battery(online ? snapshot.battery : 255, client.input_mode == ATOM_INPUT_XBOX);
             bool valid = (p[18] & 1) != 0;
             if (valid) {
                 uint32_t id = atom_read_le(p + 19, 4);

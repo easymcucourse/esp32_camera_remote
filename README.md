@@ -9,8 +9,8 @@
 - 读取取景对象 `0xFFFFC002`，以 1024×576 原尺寸居中显示。
 - CPU0 接收，CPU1 独立任务使用 ESP32-S3 SIMD JPEG 解码。
 - 两个 1MiB 接收缓冲、LCD 双帧缓冲、30 行 DMA bounce buffer。
-- LIVE 与 SETTINGS 前七行英文信息依次为 WIFI、FPS、CAM、FW、BATTERY、MODE、FOCUS。SETTINGS 另显示 DS4 状态，连接绿色、断开红色；LCD 不显示手柄电量。
-- SETTINGS 新增 ASPECT / MORE，按 A 进入扩展参数，左右按相机完整枚举循环切换；EXIT+A 或 B 返回。录像时 LIVE 显示四像素红框。
+- LIVE 与 SETTINGS 前八行英文信息依次为 WIFI、FPS、CAM、FW、BATTERY、手柄电量、MODE、FOCUS。BATTERY 下方显示例如 `DS4: 80%`，未知或断连为 `DS4: --`，相机和手柄电量均按>50% 绿、21–50% 黄、≤20% 红，未知灰；Xbox 兼容来源使用 `XBOX:` 标签。Matrix 电量行保留。
+- SETTINGS 新增 MORE，按 A 进入扩展参数，左右按相机完整枚举循环切换；EXIT+A 或 B 返回。录像时 LIVE 显示四像素红框。
 - Start（DS4 Options）或串口 `S` 切换预览和设置界面；当前映射为 Y 切曝光 Mode、X 切对焦模式、L1/R1 变焦或条件手动对焦，已烧录，待相机效果验收。
 - ATOM 在蓝牙输入回调中缓存最多 128 次按键位图变化，LCD 确认后删除事件，并按事件 ID 去重，保留短按和连续按键。
 - Inter、思源黑体和 JetBrains Mono 字体使用 FreeType 灰度抗锯齿渲染，字体资源和许可证随工程提交。
@@ -21,6 +21,8 @@
 当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 标准电池服务已接入并读到 Ultimate 2 的 88%；云台真实电量来源仍待接入。
 
 显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**，见 [显示实测](docs/records/display-profile-test-20261003.md)。本轮视频模式录像期间实际连续取景约 **5.6–6.5 FPS**，用户确认红框和画面更新，实体 DS4 LT 启停也通过；照片 M 模式远程录像未通过，详见 [录像与 Aspect 实测](docs/records/record-border-aspect-test-20261003.md)。这些短窗口不证明所有模式性能或30分钟稳定性。
+
+2026-10-04 已完整移除 LT 对焦状态，LT 全压仅请求录像；EV 按右增大、按左减小，真实相机回读验证通过，见 [EV 实测](docs/records/ev-direction-test-20261004.md)。最新烧录版在照片 P 模式下仍复现“录像命令返回 OK，但实际未启动”，RT 对焦与快门释放也返回 OK，根因尚未定位，见 [失败日志分析](docs/records/record-failure-log-20261004.md)。会话重建后曾恢复录像，不能据此认定已永久修复。
 
 ## 硬件与依赖
 
@@ -130,7 +132,7 @@ idf.py -p COM6 -b 115200 flash
 | R1 | Tele（拉近）；确认非电动变焦镜头且 MF 时远对焦（−1） |
 | X / 方块 | 按相机可选枚举循环切换对焦模式 |
 | Y / 三角 | 循环切换下一个曝光 Mode |
-| LT / RT | 半压合并为 S1；LT 全压请求录像目标，RT 全压 S2 拍照 |
+| LT / RT | LT 半压无动作，全压请求录像目标；RT 半压 S1 对焦，全压 S2 拍照 |
 | 方向键 | SETTINGS：上下循环移动七项参数及 WI-FI 光标；左右修改参数，400 ms 后每 150 ms 重复 |
 | A / 叉、B / 圈 | A 或右方向进入 WI-FI；热点页 A 确认、B 返回 |
 

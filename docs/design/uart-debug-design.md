@@ -489,7 +489,7 @@ expect-any "[dbg] OK" 1     # 在任一设备的输出中等待
 | 脚本 | 设备 | 验证内容 |
 | --- | --- | --- |
 | `lcd_start_mode.txt` | LCD | 模拟 ATOM 下 Start 切换界面、LB / RB 切换 Mode |
-| `lcd_trigger_cross.txt` | LCD | RT 半压 → LT 半压 → RT 松开 → LT 松开，S1 只在最后释放 |
+| `lcd_trigger_cross.txt` | LCD | RT 半压 → LT 半压 → RT 松开 → LT 松开，S1 在 RT 松开时释放，LT 无 S1 动作 |
 | `lcd_offline_release.txt` | LCD | RT 全压时 `atom offline`，立即释放 S2、S1 |
 | `lcd_i2c_fail.txt` | LCD | `atom fail 2` 不断开；`atom fail 3` 断开后自动重连，重试期间 `seq` 不变 |
 | `lcd_gap.txt` | LCD | `pad gap` 后的事件不触发任何动作 |

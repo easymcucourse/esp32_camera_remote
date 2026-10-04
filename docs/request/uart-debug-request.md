@@ -118,7 +118,7 @@ ATOM 已支持手柄模拟、原始请求与故障注入，可脚本回放。LCD
 ## 验收测试
 
 - LCD 不接 ATOM：`atom sim on`、`pad connect`、`tap start`，界面在预览和设置间切换；`tap lb` 切换曝光 Mode。
-- LCD 模拟扳机交叉按压（RT 半压 → LT 半压 → RT 松开 → LT 松开）：日志显示 S1 只在两者都松开后释放。
+- LCD 模拟扳机交叉按压（RT 半压 → LT 半压 → RT 松开 → LT 松开）：日志显示 RT 半压按下 S1、RT 松开立即释放 S1，LT 不产生 S1 命令。
 - LCD 模拟 RT 按住时执行 `atom offline`：日志显示立即释放 S2、S1。
 - LCD 执行 `atom fail 2`：链路不判定断开；`atom fail 3`：判定断开并在恢复后重连。
 - ATOM 不接手柄：`pad sim on`、`tap start`，LCD 通过真实 I²C 收到事件并切换界面。
