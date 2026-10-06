@@ -65,7 +65,7 @@ python tools/ci_build.py lcd debug --profile stable
 
 ## ATOM 子工程（经典 ESP32）
 
-ATOM 已改为 Classic + BLE 双模，启用 GATTC；不能沿用旧的 BR/EDR-only sdkconfig。备份并移开旧配置后从 defaults 重新生成，CI 同样检查双模开关。BLE 电量客户端扫描带 gamepad / joystick 外观或支持名称的设备，连接后验证 HID 服务；一次扫描只有一个候选时连接，多个候选或列表溢出时不盲选。读取标准 Battery Service 的 Battery Level，断线清除；完整 BLE 按键适配仍待实现。
+ATOM 使用 Classic + BLE 双模并启用 GATTC，不能沿用旧的 BR/EDR-only sdkconfig。备份旧配置后从 defaults 重新生成，CI 检查双模开关。BLE 客户端扫描带 gamepad / joystick 外观或支持名称的设备，连接后验证 HID 服务；一次扫描只有一个候选时连接，多个候选或列表溢出时不盲选。标准 Battery Service 电量和 Ultimate 2 报告解析已进入构建；其他设备兼容性及新拆分固件的物理按键效果仍待实测。
 
 ```powershell
 cd m5_atom_matrix
@@ -74,7 +74,7 @@ idf.py build
 idf.py -p COM6 -b 115200 flash monitor
 ```
 
-ATOM 高波特率烧录曾失败，115200 已验证可用。旧 `sdkconfig` 需确认 Classic Bluetooth / Bluedroid / HID Host、BR/EDR Only、关闭 SPP，以及 `CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y`、`CONFIG_I2C_ISR_IRAM_SAFE=y`。以子工程默认配置为准。
+ATOM 高波特率烧录曾失败，115200 已验证可用。已有 `sdkconfig` 须确认 Classic Bluetooth / Bluedroid / HID Host、`CONFIG_BTDM_CTRL_MODE_BTDM=y`、`CONFIG_BT_BLE_ENABLED=y`、`CONFIG_BT_GATTC_ENABLE=y`、关闭 SPP，以及 `CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y`、`CONFIG_I2C_ISR_IRAM_SAFE=y`。以子工程默认配置为准。
 
 ## 哪些改动需要烧录哪一端
 
@@ -91,12 +91,12 @@ ATOM 高波特率烧录曾失败，115200 已验证可用。旧 `sdkconfig` 需�
 在仓库根目录、有主机编译器的终端中运行。MinGW 示例：
 
 ```powershell
-cmake -S tests/host -B build/host -G "MinGW Makefiles"
+cmake -S tests/host -B build/host -G "MinGW Makefiles" -DMODULE_CJSON_SOURCE_DIR="C:/Espressif/frameworks/esp-idf-v5.5.1/components/json/cJSON"
 cmake --build build/host -j 4
 ctest --test-dir build/host --output-on-failure
 ```
 
-其他环境选择已安装的 CMake generator；同一个构建目录不混用 generator。统一 CTest 当前有 52 项，包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
+主机Web契约测试需cJSON：Linux可安装libcjson-dev；Windows示例直接编译上面SDK目录中未改动的cJSON.c/.h，请按实际SDK位置修改。其他环境选择已安装的CMake generator；同一个构建目录不混用 generator。统一CTest当前263项（原54保留），包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
 
 合成输入在测试源码中；四份脱敏属性裁剪样本位于 [fixtures](../../tests/host/fixtures/README.md)，由属性提取工具生成，不包含原始网络包。主机回归不证明真实 NVS、射频、相机写入或界面视觉效果。
 
@@ -107,7 +107,7 @@ ctest --test-dir build/host --output-on-failure
 | `tools/prepare_fonts.py` | 下载字体到 `.reference/fonts/` 并裁剪；依赖 `tools/requirements-fonts.txt` |
 | `tools/font_preview_host/` | 用固件同一份 `ui_fonts.c` 渲染连接页、参数面板和字号样例 |
 
-字体工具命令见 [字体说明](../../components/board_7b/fonts/README.md)。
+字体工具命令见 [字体说明](../../components/app_ui/fonts/README.md)。
 
 ## 待改进
 

@@ -1,4 +1,5 @@
 #include "debug_console.h"
+#include "async_token.h"
 #include "debug_line.h"
 #include "debug_args.h"
 #include "atom_protocol.h"
@@ -12,17 +13,15 @@
 #include <stdarg.h>
 #include <inttypes.h>
 #include <stdatomic.h>
-static atomic_uint async_token;
 uint32_t debug_async_token(void)
 {
-    uint32_t token=atomic_fetch_add(&async_token,1)+1;
-    if (!token) token=atomic_fetch_add(&async_token,1)+1;
-    return token;
+    return async_token_next();
 }
 
 static debug_command_t application_command;
 static void (*application_poll)(void);
-static bool started;
+static void (*application_retire)(void);
+static atomic_bool started, stopping, worker_exists;
 static uint32_t request_id;
 static bool numbered;
 int debug_printf(const char *format, ...)
@@ -66,10 +65,13 @@ static void console_task(void *unused)
 {
     (void)unused;
     debug_line_t line = {0};
-    for (;;) {
+    while (!atomic_load(&stopping)) {
         uint8_t byte;
         if (application_poll) application_poll();
-        if (uart_read_bytes(UART_NUM_0, &byte, 1, pdMS_TO_TICKS(20)) != 1) continue;
+        int read=uart_read_bytes(UART_NUM_0, &byte, 1, pdMS_TO_TICKS(20));
+        if (read<0) break;
+        if (read!=1) continue;
+        if (atomic_load(&stopping)) break;
         debug_line_result_t result = debug_line_feed(&line, byte);
         if (result == DEBUG_LINE_ERROR) { printf("[dbg] ERR input line invalid or too long\n"); continue; }
         if (result != DEBUG_LINE_READY) continue;
@@ -86,17 +88,50 @@ static void console_task(void *unused)
             debug_printf("[dbg] ERR unknown command; use help\n");
         numbered = false;
     }
+    numbered=false;
+    if (application_retire) application_retire();
+    while (uart_driver_delete(UART_NUM_0)!=ESP_OK) vTaskDelay(pdMS_TO_TICKS(20));
+    application_command=NULL;application_poll=NULL;application_retire=NULL;
+    atomic_store(&worker_exists,false);
+    atomic_store(&started,false);
+    vTaskDelete(NULL);
 }
 
-esp_err_t debug_console_start(debug_command_t dispatch, void (*poll)(void))
+esp_err_t debug_console_start_owner(debug_command_t dispatch, void (*poll)(void),void (*retire)(void))
 {
-    if (!dispatch || started) return ESP_ERR_INVALID_STATE;
+    bool expected=false;
+    if (!dispatch || !atomic_compare_exchange_strong(&started,&expected,true)) return ESP_ERR_INVALID_STATE;
     esp_err_t err = uart_driver_install(UART_NUM_0, 512, 0, 0, NULL, 0);
-    if (err != ESP_OK) return err;
-    application_command = dispatch; application_poll = poll;
+    if (err != ESP_OK) { atomic_store(&started,false);return err; }
+    atomic_store(&stopping,false);
+    application_command = dispatch; application_poll = poll;application_retire=retire;
+    atomic_store(&worker_exists,true);
     if (xTaskCreate(console_task, "debug_console", 4096, NULL, 2, NULL) != pdPASS) {
-        uart_driver_delete(UART_NUM_0); return ESP_ERR_NO_MEM;
+        atomic_store(&worker_exists,false);
+        if (uart_driver_delete(UART_NUM_0)==ESP_OK) {
+            application_command=NULL;application_poll=NULL;application_retire=NULL;atomic_store(&started,false);
+        } else {
+            /* No worker exists. Retain ownership for stop() to retry cleanup. */
+            atomic_store(&stopping,true);
+        }
+        return ESP_ERR_NO_MEM;
     }
-    started = true;
     return ESP_OK;
 }
+
+bool debug_console_stop(uint32_t timeout_ms)
+{
+    atomic_store(&stopping,true);
+    TickType_t begin=xTaskGetTickCount(),budget=pdMS_TO_TICKS(timeout_ms);
+    while (atomic_load(&started)) {
+        if (!atomic_load(&worker_exists) && uart_driver_delete(UART_NUM_0)==ESP_OK) {
+            application_command=NULL;application_poll=NULL;application_retire=NULL;atomic_store(&started,false);break;
+        }
+        if ((TickType_t)(xTaskGetTickCount()-begin)>=budget) return false;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return true;
+}
+
+esp_err_t debug_console_start(debug_command_t dispatch,void (*poll)(void))
+{ return debug_console_start_owner(dispatch,poll,NULL); }

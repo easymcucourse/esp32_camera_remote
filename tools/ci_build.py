@@ -51,6 +51,13 @@ def main():
             'CONFIG_BT_GATTC_ENABLE=y'} <= config:
         raise RuntimeError('ATOM BLE support disabled; refresh its build sdkconfig')
     if args.board == 'lcd':
+        subprocess.run([sys.executable, str(root / 'tools/check_component_graph.py'), str(build),
+                        '--json', str(build / 'component-graph.json')], check=True)
+        component_nm = shutil.which('xtensa-esp-elf-nm')
+        if not component_nm:
+            parser.error('xtensa-esp-elf-nm not found in exported IDF PATH')
+        subprocess.run([sys.executable, str(root / 'tools/check_module_symbols.py'), str(build),
+                        '--nm', component_nm, '--json', str(build / 'module-symbol-edges.json')], check=True)
         if 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' not in config:
             raise RuntimeError('LCD OTA rollback is disabled; refresh the build sdkconfig')
         if (build / f'{name}.bin').stat().st_size > 5 * 1024 * 1024:
@@ -67,7 +74,12 @@ def main():
         forbidden = {'pad_cmd_parse', 'pad_player_tick', 'atom_sim_transact',
                      'matrix_debug_frame', 'atom_fault_take'}
         if args.board == 'lcd':
-            forbidden.update({'jpeg_enc_open', 'jpeg_enc_process', 'board_7b_test_jpeg'})
+            forbidden.update({'jpeg_enc_open', 'jpeg_enc_process', 'app_ui_test_jpeg',
+                              'input_sim_start', 'input_sim_stop', 'lcd_sim_command',
+                              'lcd_sim_enabled', 'lcd_sim_event', 'lcd_sim_poll',
+                              'display_bench_command', 'display_bench_event', 'display_bench_poll',
+                              'ui_bench_message', 'ui_bench_quiesce', 'camera_display_begin',
+                              'camera_display_ready', 'camera_display_end', 'app_ui_test_display_fault'})
         present = names & forbidden
         if present:
             raise RuntimeError(f'release contains simulator symbols: {sorted(present)}')

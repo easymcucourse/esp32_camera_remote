@@ -16,6 +16,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check documentation links
         run: python3 tools/check_doc_links.py
+      - name: Check display module boundaries
+        run: python3 tools/check_module_boundaries.py
+      - name: Install host JSON parser dependency
+        run: sudo apt-get update && sudo apt-get install -y libcjson-dev
       - name: Configure host tests with sanitizers
         run: >-
           cmake -S tests/host -B build/host-ci -DCMAKE_BUILD_TYPE=Debug
@@ -55,6 +59,8 @@ jobs:
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/*.elf
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/*.map
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/size.json
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/component-graph.json
+            build/ci-${{ matrix.board }}-${{ matrix.flavour }}/module-symbol-edges.json
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/flash_args
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/sdkconfig
             build/ci-${{ matrix.board }}-${{ matrix.flavour }}/bootloader/bootloader.bin

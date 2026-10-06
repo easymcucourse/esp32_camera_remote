@@ -1,0 +1,1 @@
+idf_component_register(SRCS "preferences_store.c" "camera_identity_store.c" "../../common/async_token.c" "../../common/network_config.c" "../../common/i2c_monitor_format.c" INCLUDE_DIRS "../../common" PRIV_REQUIRES nvs_flash esp_hw_support)

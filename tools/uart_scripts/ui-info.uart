@@ -1,50 +1,14 @@
-# Requires full display as baseline; restores full afterwards.
+# Current LCD firmware: query the boot snapshot; normal writes must be rejected.
+# No preference changes, reset, maintenance entry, or camera actions.
 @lcd ui info
-expect "info=full"
-!lcd ui info unknown
-!lcd ui info full extra
-atom sim on
-wait 200
-pad connect
-wait 200
-tap touch 100
-wait 150
+expect "info="
+ui pad
+expect "pad="
+!lcd ui info next
+expect "maintenance Web"
+!lcd ui pad ds
+expect "maintenance Web"
 ui info
-expect "info=compact"
-hold touch
-wait 150
-ui info
-expect "info=hidden"
-hold touch
-wait 300
-ui info
-expect "info=hidden"
-release all
-wait 150
-pad gap
-tap touch 100
-wait 200
-ui info
-expect "info=hidden"
-ui info next
-ui info
-expect "info=full"
-tap x+y 100
-wait 150
-ui info
-expect "info=full"
-tap start 100
-wait 200
-ui info hidden
-status
-expect "settings=1"
-expect "ui info=hidden"
-tap start 100
-wait 200
-ui info full
-atom sim off
-wait 200
-status
-expect "sim=0"
-expect "settings=0"
-expect "ui info=full"
+expect "info="
+ui pad
+expect "pad="

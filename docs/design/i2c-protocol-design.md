@@ -296,12 +296,12 @@ stateDiagram-v2
 
 ## 实现清单
 
-- [x] 新增两端共用的 `common/atom_protocol.h/.c`：命令码、结果码、帧长度、偏移量和 `crc8()`。
+- [x] 两端共用 `common/atom_protocol.h` 与 `common/atom_protocol.c`：命令码、结果码、帧长度、偏移量和 `crc8()`。
 - [x] ATOM：I²C 接收拆为独立任务，实现重新同步、CRC 校验和 `HELLO` / `POLL`。
 - [x] ATOM：生成 `boot_id`；事件入队前清除 `local_mask` 并去重；实现 `gap_pending`。
 - [x] ATOM：RGB 命令已移除，接入 `matrix_status` 独立渲染与纯 C 状态模型；实机视觉 / 恢复验收另记。
 - [ ] ATOM：新增云台模块，消费左摇杆和 L3，处理断开和输入超时停止。
-- [x] LCD：`main/atom_link.c` 改为 OFFLINE / HELLO / ONLINE 状态机，按 `len` 定位 CRC，连续 3 次失败才判定断开。
+- [x] LCD：`components/app_input_atom/atom_link.c` 的 OFFLINE / HELLO / ONLINE 状态机，按 `len` 定位 CRC，连续 3 次失败才判定断开；只通过provider API上报report，业务仲裁归app_input。
 - [x] LCD：处理 `boot_id` 变化和 `gap` 事件，不生成边沿。
 - [x] LCD：界面显示云台连接状态和“ATOM 固件版本不匹配”。
 - [x] 更新 [ATOM 子项目说明](../../m5_atom_matrix/README.md) 和根目录 README 中的协议描述。

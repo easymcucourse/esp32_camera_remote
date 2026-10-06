@@ -1,16 +1,15 @@
 # 设置菜单控制
 
-`camera_menu` 为相机 socket 所有者使用的纯 C 模块，管理 Shutter、F-Number、ISO、EV、WB、Focus、Metering 七项主参数和九项扩展参数。方向键事件由 `gamepad_input` 产生，ATOM 轮询任务把当前选中项的步数交给相机任务；各项分别累加，移动光标不会把旧输入改投新参数。
+`camera_menu` 为相机 socket 所有者使用的纯 C 模块，管理 Shutter、F-Number、ISO、EV、WB、Focus、Metering 七项主参数和九项扩展参数。方向键事件由 `gamepad_input` 产生，Input owner先经typed UI菜单request取得route/property，再经Camera message把步数交给相机owner；各项分别累加，移动光标不会把旧输入改投新参数。
 
 ## 输入与显示
 
 - SETTINGS 中上下循环移动光标，左右选择相邻值；单方向按住 400 ms 后，每 150 ms 重复一次。多方向同时按住、换方向但未全松开、事件缺失、会话变化或切出 / 切入 SETTINGS 都要求先全松开。
 - 普通参数枚举左右首尾循环，第一个按左到最后一个，最后一个按右到第一个；X 的 Focus 快捷切换和 Y 的 Mode 快捷切换保持循环。没有完整枚举的快门 / 光圈相对步进无法确定首尾，边界循环仍待协议支持。
-- SETTINGS 前八行与 LIVE 相同，依次为 WIFI、FPS、CAM、FW、BATTERY、手柄电量、MODE、FOCUS。参数光标按画面顺序经过 Focus、Shutter、Aperture、ISO、EV、WB、Meter、MORE、WI-FI、MAINTENANCE；属性 ID 保持原映射，初始选中 Focus。
+- SETTINGS 前八行与 LIVE 相同，依次为 WIFI、FPS、CAM、FW、BATTERY、手柄电量、MODE、FOCUS。参数光标按画面顺序经过 Focus、Shutter、Aperture、ISO、EV、WB、Meter、MORE、Wi-Fi；属性 ID 保持原映射，初始选中 Focus。
 - LCD worker 绘制光标背景及灰色只读项。实际参数保持回报值；有可计算目标时底部显示 `TO ...`，另显示 PENDING。终态在选中项底部保留 3 秒。
 - UI 元数据通过短临界区整项复制，绘图与网络事务均不在该锁内。
-- 参数页第九个导航项为 `WI-FI >`；A（DS4 叉）或右方向进入热点页。这不是相机参数，不投递 Sony 属性写入。热点页 A/B 和草稿规则见 [热点设计](wifi-ap-design.md)。
-- 第十个导航项为 MAINTENANCE，开启需三秒内两次 A 确认停止取景；左右不会确认，不投递相机参数写入，见 [维护设计](maintenance-design.md)。
+- 主参数页九项导航，最后Wi-Fi只显示信息，不投递相机或配置写入。MORE保持子菜单入口；维护菜单已删除，设置只能启动页Web完成，见 [维护设计](maintenance-design.md)。
 
 ## 属性与目标
 

@@ -1,5 +1,5 @@
 #include "board_lcd.h"
-#include "board_7b.h"
+#include "board_dimensions.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
@@ -36,7 +36,9 @@ static const esp_lcd_rgb_panel_config_t config = {
         .flags.pclk_active_neg = true,
     },
     .data_width = 16, .bits_per_pixel = 16, .num_fbs = 2,
-    .bounce_buffer_size_px = BOARD_LCD_WIDTH * 30, .dma_burst_size = 64,
+    /* Two 10-line internal DMA buffers leave 80 KiB more boot headroom than
+     * 30 lines, while retaining the two full PSRAM framebuffers. */
+    .bounce_buffer_size_px = BOARD_LCD_WIDTH * 10, .dma_burst_size = 64,
     .hsync_gpio_num = 46, .vsync_gpio_num = 3, .de_gpio_num = 5, .pclk_gpio_num = 7,
     .disp_gpio_num = -1,
     .data_gpio_nums = {14, 38, 18, 17, 10, 39, 0, 45, 48, 47, 21, 1, 2, 42, 41, 40},
@@ -156,16 +158,11 @@ esp_err_t board_lcd_recover(board_lcd_prepare_t prepare)
     esp_err_t err = ESP_FAIL;
     for (unsigned attempt = 1; attempt <= 3; ++attempt) {
         ESP_LOGW(TAG, "LCD recovery attempt %u/3", attempt);
-        if (panel) {
-            err = restart_panel(prepare);
-            if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
-                err = delete_panel();
-                if (err == ESP_OK) err = create_panel(prepare);
-            }
-        } else err = create_panel(prepare);
+        /* Runtime recovery must never replace the boot-allocated canvases. */
+        err = restart_panel(prepare);
         if (err == ESP_OK) { ESP_LOGI(TAG, "LCD recovery complete"); return ESP_OK; }
         ESP_LOGE(TAG, "LCD recovery attempt %u failed: %s", attempt, esp_err_to_name(err));
     }
-    delete_panel();
+    ready = false; /* Keep panel/buffers allocated; Core requests reboot. */
     return err;
 }

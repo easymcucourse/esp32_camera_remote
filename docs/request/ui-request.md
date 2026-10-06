@@ -1,6 +1,6 @@
 # 界面显示方案
 
-LCD 为 1024×600 RGB565（Waveshare ESP32-S3-Touch-LCD-7B），不启用触摸，全部操作来自手柄，按键规则见 [手柄控制方案](gamepad-request.md)。字体为 Inter（英文）、思源黑体（中文）、JetBrains Mono（参数数字），见 [字体说明](../../components/board_7b/fonts/README.md)。
+LCD 为 1024×600 RGB565（Waveshare ESP32-S3-Touch-LCD-7B），不启用触摸，全部操作来自手柄，按键规则见 [手柄控制方案](gamepad-request.md)。字体为 Inter（英文）、思源黑体（中文）、JetBrains Mono（参数数字），见 [字体说明](../../components/app_ui/fonts/README.md)。
 
 标注“规划”的章节为目标行为；电量、录像计时与控制状态已有部分绘制，具体边界以下表与 [实施状态](../development/implementation-status.md) 为准。
 

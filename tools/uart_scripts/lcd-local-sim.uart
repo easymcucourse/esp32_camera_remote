@@ -6,7 +6,7 @@ pad connect
 pad battery 7
 wait 200
 status
-expect "atom=1"
+expect "ds4=1"
 expect "ds4=1"
 expect "sim=1"
 expect "settings=0"
@@ -40,29 +40,29 @@ expect "settings=0"
 atom crc 2
 wait 250
 status
-expect "atom=1"
-expect "failures=0"
+expect "ds4=1"
+expect "mismatch=0"
 atom fail 3
-expect "ATOM link lost" 2
+expect "SIM link lost" 2
 wait 1200
 status
-expect "atom=1"
+expect "ds4=1"
 atom timeout 3
-expect "ATOM link lost" 2
+expect "SIM link lost" 2
 wait 1200
 status
-expect "atom=1"
+expect "ds4=1"
 atom version 1
-expect "firmware version mismatch" 2
+expect "SIM firmware version mismatch" 2
 atom version 2
 wait 200
 status
-expect "atom=1"
+expect "ds4=1"
 atom reboot
-expect "ATOM restarted" 2
+expect "SIM protocol restarted boot_id=2" 2
 wait 200
 status
-expect "boot_id=2"
+expect "source_epoch="
 pad connect
 wait 200
 trigger rt full
@@ -76,7 +76,9 @@ expect "sim=1"
 atom online
 wait 200
 status
-expect "atom=1"
+expect "ds4=0"
+expect "mismatch=0"
+expect "sim=1"
 gimbal state connected
 !lcd atom version 256
 !lcd atom fail -1
@@ -84,7 +86,7 @@ gimbal state connected
 !lcd gimbal state invalid
 wait 1600
 @atom status
-expect "lcd=0"
+expect "lcd=1"
 @lcd atom sim off
 wait 1200
 status

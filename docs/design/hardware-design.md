@@ -1,6 +1,6 @@
 # ESP32-S3-Touch-LCD-7B 硬件配置
 
-目标为 Waveshare ESP32-S3-Touch-LCD-7B，当前不初始化触摸设备。参数对应 `components/board_7b/board_7b.c`，不要套用 LCD-7 的 CH422G 驱动。
+目标为 Waveshare ESP32-S3-Touch-LCD-7B，当前不初始化触摸设备。参数对应 `components/board_7b/board_7b_backend.c`，不要套用 LCD-7 的 CH422G 驱动。
 
 | 信号 | GPIO / 配置 |
 | --- | --- |
@@ -13,7 +13,7 @@
 | VSync / VBP / VFP | 45 / 13 / 3 |
 | 像素时钟 | 18MHz，负沿有效 |
 | 帧缓冲 | 两个 PSRAM 缓冲，每个 1024×600×2 字节 |
-| DMA bounce buffer | 每个 30 行，两块共 120KiB 内部 RAM |
+| DMA bounce buffer | 每个 10 行，两块共 40KiB 内部 RAM；2026-10-06 启动内存修复 |
 
 启动先关背光，配置屏幕电源，初始化帧缓冲及 RGB 外设，再开背光。实时取景为 1024×576，居中坐标 `(0,12)`。
 

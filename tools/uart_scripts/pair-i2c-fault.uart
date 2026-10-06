@@ -4,7 +4,7 @@ i2c log changes
 wait 350
 @lcd status
 expect "atom=1"
-expect "failures=0"
+expect "mismatch=0"
 i2c stats
 expect "bad_crc=2"
 @atom i2c corrupt 3

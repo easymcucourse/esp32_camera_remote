@@ -1,8 +1,8 @@
 # 界面设计
 
-本文是 [界面显示方案](../request/ui-request.md) 的实现设计，记录当前各画面的布局参数和绘制流程，并定义规划功能（信息显示档位、对焦框、对焦放大和统一提示）的界面状态和绘制规则。显示接口的抽象和 `ui_presenter` 的分工见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md#11-显示抽象接口与-board_7b-实现) 第 11 节，本文不重复。
+本文是 [界面显示方案](../request/ui-request.md) 的实现设计，记录当前各画面的布局参数和绘制流程，并定义规划功能（信息显示档位、对焦框、对焦放大和统一提示）的界面状态和绘制规则。2026-10-06 当前已建立 app_ui / display_surface / board_7b 边界，实际进度见 [拆分进度](../development/module-split-status.md)。历史显示目标和 `ui_presenter` 的分工见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md#11-显示抽象接口与-board_7b-实现) 第 11 节，本文不重复。
 
-> 第 1–3、7 节按 2026-10-03 `board_7b.c` / `camera_menu` 核对当前实现；第 4–6、8 节保留后续目标，部分状态绘制已接入。代码接入与视觉验收分别记录，见 [实施状态](../development/implementation-status.md)。
+> 第 1–3、7 节按当前 `app_ui/ui_renderer.c`、`ui_model.c` / `camera_menu` 核对当前实现；第 4–6、8 节保留后续目标，部分状态绘制已接入。代码接入与视觉验收分别记录，见 [实施状态](../development/implementation-status.md)。
 
 ## 1. 显示参数
 
@@ -11,7 +11,7 @@
 | 分辨率 | 1024×600，RGB565 |
 | 取景源图 | 1024×576，居中于 `(0,12)`，上下各 12 像素黑边 |
 | 设置页缩略图 | 768×432，位于 `(0,0)`，下方 y ≥ 432 显示扩展参数 |
-| 字体 | Inter（英文）、思源黑体（中文）、JetBrains Mono（数字），FreeType 灰度抗锯齿，见 [字体说明](../../components/board_7b/fonts/README.md) |
+| 字体 | Inter（英文）、思源黑体（中文）、JetBrains Mono（数字），FreeType 灰度抗锯齿，见 [字体说明](../../components/app_ui/fonts/README.md) |
 | 自适应字号 | `fit_font_size()` 从请求字号逐级缩小，直到文字宽度不超过可用宽度，最小 12 像素 |
 
 颜色（RGB565）：
@@ -46,7 +46,7 @@
 | `Connect camera to this Wi-Fi.` | (48, 466) | 24 | 灰 |
 | `Enable PC Remote on camera.` | (48, 516) | 24 | 灰 |
 
-SSID、密码和 IP 从动态元数据复制；密码关闭显示时为 `********`。相机离线时按 Start / `S` 仍能显示设置面板并进入热点页。
+SSID、密码和 IP 从动态元数据复制；密码关闭显示时为 `********`。相机离线时按Start/S仍可显示设置面板，Wi-Fi行只信息；配置修改通过启动页Web。
 
 ### 预览叠加层
 
@@ -67,7 +67,7 @@ LCD 在相机 BATTERY 下方显示当前手柄电量，DS4 的 0–10 档乘 10 
 
 ### 设置页
 
-左侧 768×432 缩略图，右侧 x ≥ 768 的 256 像素宽参数面板：背景 `0x0841`，x = 768 处为灰色分隔线。18 行，行高 28，首行 y = 12，左内边距 8，字号 18 自适应。
+左侧 768×432 缩略图，右侧 x ≥ 768 的 256 像素宽参数面板：背景 `0x0841`，x = 768 处为灰色分隔线。17行，行高28，首行 y = 12，左内边距 8，字号 18 自适应。
 
 | 行 | 内容 | 颜色 |
 | --- | --- | --- |
@@ -77,10 +77,9 @@ LCD 在相机 BATTERY 下方显示当前手柄电量，DS4 的 0–10 档乘 10 
 | 6–7 | MODE、FOCUS | 黄；Focus 不可写时灰显 |
 | 8–14 | SHUTTER、APERTURE、ISO、EV、WB、METER、FLASH | 黄；不可写参数灰显 |
 | 15 | `MORE (A enter)` | 黄 |
-| 16 | `WI-FI >  (A enter)` | 黄 |
-| 17 | `MAINTENANCE (A enter)` / 停止确认 / 开启状态 | 黄 |
+| 16 | `WI-FI (Web settings)` | 黄 |
 
-独立 DS4 CONNECTED / DISCONNECTED 行已移除，电量行保留。前八行英文信息顺序与 LIVE 相同：WIFI、FPS、CAM、FW、BATTERY、手柄电量、MODE、FOCUS。光标按画面顺序在 Focus、Shutter、Aperture、ISO、EV、WB、Meter、MORE、WI-FI、MAINTENANCE 间循环，初始选中 Focus。参数枚举左右首尾循环；无完整枚举的快门、光圈保持相对步进，边界循环待协议支持。高亮背景为 `0x1947`；选中参数在 y=542 显示状态、y=570 显示可计算目标 `TO …`。维护停止确认要求三秒内两次 A，左右不会确认。热点页替换右侧面板：标题 y=8，九项从 y=44 起、行距 54，每项最多两行、字号 16；页脚从 y=535 起。视觉效果待实机验收。
+独立DS4 CONNECTED/DISCONNECTED行已移除，电量行保留。前八行顺序与LIVE相同。光标在Focus、Shutter、Aperture、ISO、EV、WB、Meter、MORE、Wi-Fi九项循环，ID固定，初始Focus。相机枚举左右首尾循环，缺完整枚举的快门/光圈保留相对步进。高亮0x1947，状态y=542/目标y=570。Wi-Fi只显示信息，维护与热点编辑菜单及二次确认已删除；MORE子菜单保持。当前视觉尚待实机验收。
 
 数值格式：ISO 低 24 位，`0x00FFFFFF` 为 AUTO；快门高 16 位 / 低 16 位为分子 / 分母，0 为 BULB；光圈为 F 值 ×100；EV 为 ×1000；枚举按属性代码查表，未收录时显示十六进制。
 
@@ -123,7 +122,7 @@ typedef struct {
 
 ## 5. 状态栏与信息显示档位（部分已接入）
 
-实际代码由 `ui_preferences` 低优先级队列保存 NVS `ui_prefs/info`，保存成功才更新原子档位；错误保留原状态。触摸板事件 / ui info next 按 owner 最新状态循环，快照和按住不重复，gap 不切换。信息档位只作用于 LIVE；SETTINGS 保持菜单、命令状态与录制计时。全显保留右上相机电量 / 对焦，精简保留录像计时、≤20% 电量告警和拒绝 / 超时，隐藏只保留录像红点；所有档位在模拟时继续显示 SIM。下一张成功解码的取景帧应用叠加策略。部分其他状态条目继续规划。
+当前ui_preferences.c在启动时通过common_runtime只读加载schema1/pad/info并发布原子快照；失败或未来版本用RAM默认值且不覆该存储。无偏好task/queue/writer，正常message仅GET；UART参数设置与触摸板循环写入已删除。Web保存后重启加载。信息档位只作用于 LIVE；SETTINGS 保持菜单、命令状态与录制计时。全显保留右上相机电量 / 对焦，精简保留录像计时、≤20% 电量告警和拒绝 / 超时，隐藏只保留录像红点；所有档位在模拟时继续显示 SIM。下一张成功解码的取景帧应用叠加策略。部分其他状态条目继续规划。
 
 状态栏条目按优先级排列，空间不足时从低优先级开始省略：
 
@@ -153,10 +152,10 @@ typedef struct {
 
 ## 7. 设置菜单（已接入）
 
-- 顺序为 Shutter、F-Number、ISO、EV、WB、Focus、Metering，再加 WI-FI；光标背景 `0x1947`。
+- 画面导航顺序为Focus、Shutter、F-Number、ISO、EV、WB、Metering、MORE、Wi-Fi；光标背景 `0x1947`。
 - 缺失能力或不可写项灰显，光标可经过，左右不发送写入。
 - 参数行始终保留相机回报的实际值；底部另外显示目标与 PENDING。选中参数的 APPLIED / REJECTED / TIMEOUT 终态保留 3 秒。
-- 参数目标合并、500 ms 待确认刷新与 10 秒超时见 [设置菜单设计](camera-menu-design.md)，热点草稿和二次确认见 [Wi-Fi 设计](wifi-ap-design.md)。
+- 参数目标合并、500 ms 待确认刷新与 10 秒超时见 [设置菜单设计](camera-menu-design.md)，Web设置与重启规则见 [Wi-Fi 设计](wifi-ap-design.md)。
 
 ## 8. 提示信息（规划）
 
@@ -189,4 +188,16 @@ typedef struct {
 
 LIVE 在相机回读录像状态为录制中时绘制四像素 RGB565 红框（0xF800），所有信息档位均显示，位于最后叠加阶段；停止回读后的下一帧不再绘制。SETTINGS 不绘制外框。
 
-MORE 按 A 打开右侧扩展面板，九项扩展参数从 y=44 开始、行距44，底部第十项 EXIT 按 A 返回，B同样返回；Start退出设置页时关闭子菜单。参数值与待确认目标分别显示，状态位于 y=510，TO目标位于y=542。主菜单属性ID不变，子菜单参数映射到7–15，EXIT为16，仅导航，不向相机写入。子菜单事件先于Wi-Fi和维护菜单分派，避免扩展属性ID与入口ID冲突。
+MORE 按 A 打开右侧扩展面板，九项扩展参数从 y=44 开始、行距44，底部第十项 EXIT 按 A 返回，B同样返回；Start退出设置页时关闭子菜单。参数值与待确认目标分别显示，状态位于 y=510，TO目标位于y=542。主菜单属性ID不变，子菜单参数映射到7–15，EXIT为16，仅导航，不向相机写入。子菜单先分派，Wi-Fi主行只返回信息，不与扩展属性ID混用。
+
+## 11. 生命周期与独占维护
+
+UI public仅app_ui.h，Core生命周期/启动网络信息/健康查询。model/setters/menu/JPEG/Debug接口归private，其他功能组件只能typed UI消息，不能取得surface。JPEG与benchmark都调用同一ui_jpeg_renderer；UI endpoint承担解码，无额外JPEG worker。显示/decoder缓存由display_mutex串行，Connection refresh32768-byte PSRAM CPU1/prio2与endpoint32768 CPU1/prio4由Core停止。
+
+normal admission关闭后先取消benchmark与普通writer，等待JPEG lease/completion、UI endpoint及renderer users退出；Core在前置owners排空成功后才ui_model_freeze_and_clear。它是依赖join前提下的永久freeze，不是独立并发setter屏障。保留健康标志/锁/单调generation，清空普通文本/菜单/属性/状态；renderer清旧连接缓存。之后只黑底白字48px居中MAINTENANCE，其他JPEG/overlay/menu/connection/Debug请求拒绝，不恢复正常模式。面板/font/cache保留用于固定画面。见 [资源表](module-resource-ownership.md)及 [清空记录](../records/module-ui-clear-20261006.md)。
+
+## 12. 当前测试范围
+
+原overlay基线使用legacy头保留原asserts；当前生产model/messages/frames/endpoint/renderer stop另有真实源码测试。display_surface验证duplicate acquire、timeout、cancel/reacquire、copy/stale lease、publication failure拒绝写入与recover generation；board fake验证buffer所有权/旧回调/恢复。
+
+ui_frames/endpoint/bench的app_ui_show_jpeg是stub，证明lease/路由/排空。另新增Debug/Release真实ui_jpeg_renderer控制流测试，覆盖header/尺寸/输出长度/alloc/open/fast部分decode/ROM部分tile失败不publish、canvas取消、cache reset和后续good、publication失败禁写/恢复以及settings缩小和Debug合成图同入口。解码库/画布backend仍为stub，不能证明真实JPEG像素质量或RGB同步；历史liveview_pipeline不当作当前renderer覆盖。见 [renderer记录](../records/module-jpeg-renderer-20261006.md)。完整证据见 [清单](../development/module-split-checklist.md)。

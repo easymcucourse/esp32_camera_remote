@@ -4,10 +4,11 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [main 模块拆分进度](module-split-status.md) | 实际完成边界、待迁移阶段及验证索引 |
 | [编译与烧录](build-and-flash.md) | 两个工程的编译烧录、`idf.ps1`、改动要烧哪一端、主机测试、字体工具 |
 | [串口日志](serial-log.md) | `serial_log.py` 参数和示例、LCD 串口命令、日志关键字 |
 | [测试](testing.md) | 测试分层、主机测试约定、故障注入、稳定性指标、CI |
 | [全需求实施状态](implementation-status.md) | 除云台外全部需求的实施范围、现有证据和未完成验收 |
-| [字体资源与许可](../../components/board_7b/fonts/README.md) | 字体来源、裁剪方法及随仓库提供的许可证 |
+| [字体资源与许可](../../components/app_ui/fonts/README.md) | 字体来源、裁剪方法及随仓库提供的许可证 |
 
 当前实现的模块和启动顺序见 [系统架构](../design/architecture-design.md)，引脚和时序见 [硬件配置](../design/hardware-design.md)。

@@ -2,61 +2,45 @@
 
 本文是 [手柄控制方案](../request/gamepad-request.md) 在 LCD 端的实现设计：如何把 ATOM 上报的手柄快照和按键事件转换成相机命令和界面操作，并保证拍照、录像、变焦在任何异常下都能安全释放。ATOM 端的云台处理见 [BLE 云台控制设计](gimbal-design.md)，链路协议见 [I²C 通信协议](i2c-protocol-design.md)。
 
-> 工作区已接入 gamepad_input、camera_actions、setting_control 和 camera_menu：Y 曝光 Mode、X 对焦模式、肩键变焦 / 条件 MF、扳机与七项参数菜单；当前统一 54 项主机回归通过。新映射与菜单已有烧录记录；相机效果仍待验收。用户于 2026-10-03 确认当前电动变焦镜头，运行时采用 POWER_ZOOM；MF 替代未启用。两端 I²C v2 已烧录；对焦框与其他未完成项仍为目标设计。菜单细节见 [设置菜单设计](camera-menu-design.md)。
+当前输入动作规则保留原纯C状态机，结构按最终 [拆分计划](../../main-module-split-plan.md) 整理。历史烧录和镜头声明有日期范围，不能代表当前完整拆分固件已验收；当前测试证据见 [验收清单](../development/module-split-checklist.md)。
 
-## 1. 现状
+## 1. 当前输入路径
 
-`main/atom_link.c` 中的 `atom_link_task` 同时负责 I²C 轮询和按键处理：
+物理app_input_atom与Debug app_input_sim各自独占protocol client，提交复制的normalized report到app_input provider registry；只有input_owner服务解释按键、来源、capabilities和UI状态。真实I²C provider只负责协议/monitor/device，不执行gamepad映射，不调用相机或UI。SIM不停止物理ATOM轮询，仲裁只选一个来源，切换先完整release再baseline。
 
-- 缓存事件和实时快照交给纯 C 的 `gamepad_input`，`report_buttons` 仅记录日志；
-- Y / X 分别投递下一曝光 Mode / 对焦模式，参数目标合并，等待真实属性回读；
-- L1 / R1 根据已确认能力投递变焦或 MF 步进，扳机驱动 S1/S2 和录像目标；
-- Options（Start）切换界面；电池写入显示状态；右摇杆仍只记录日志。
-- SETTINGS 内 A（DS4 叉）确认、B（圈）返回热点页；方向键可在相机离线时导航，拍摄类操作仍需有效相机会话。热点草稿与异步应用见 [热点设计](wifi-ap-design.md#当前请求接口与验证边界2026-10-02)。
-
-高优先级队列容量 32，另有独立释放屏障；会话代数拒绝旧命令，过期或溢出取消待执行项并释放。ATOM 连续三次事务失败才判离线；重连丢弃旧缓存事件并同步当前按键。工作区 v2 已接入 `boot_id`、CRC 和 `gap`；重启重新 HELLO、缺口只同步位图并释放；已有两端烧录和握手记录，高频输入及故障恢复仍待验收。
+Input owner内部栈4096/priority4，50ms循环，经Console typed Camera/UI request消费能力并输出动作。普通请求deadline100ms且可取消；安全release需owner确认，失败保留重试并禁止新press。UI菜单结果为只读route/property，Camera动作随后独立消息提交；Wi-Fi只信息、MORE可进入，普通偏好写入与维护入口忽略。所有任务数值和停止依赖见 [资源表](module-resource-ownership.md)。
 
 ## 2. 模块划分
 
-以下为目标分层：`ui_presenter` / `camera_model` 尚未建立。当前输入通过 `pad_action_t` 交给 `camera_actions`、参数步数与 `board_7b` / `wifi_menu_ui`；不存在统一的 `camera_cmd_t` 普通命令队列。
-
 ```mermaid
 flowchart LR
-    link["atom_link<br/>I²C 协议 · 去重 · 在线状态"] -->|"快照 + 事件"| input["gamepad_input<br/>边沿 · 扳机状态机 · 映射"]
-    input -->|"camera_cmd_t"| ctrl["camera_controller<br/>高 / 普通优先级队列"]
-    input -->|"界面操作"| pres["ui_presenter"]
-    model["camera_model"] -->|"AF/MF · 可写项 · 录像状态"| input
+    Atom[app_input_atom] -->|copied report| Registry[app_input provider registry]
+    Sim[app_input_sim] -->|copied report| Registry
+    Registry --> Owner[input_owner / input_reports]
+    Owner --> Kernel[gamepad_input]
+    Kernel -->|pad_action| Service[input_service]
+    Service -->|typed request/reply| Router[app_console]
+    Router --> Camera[Camera endpoint]
+    Router --> UI[UI endpoint]
 ```
 
-| 模块 | 职责 | 不负责 |
-| --- | --- | --- |
-| `atom_link` | 协议收发、事件确认与去重、`boot_id` / `gap` 处理、ATOM 在线判定 | 按键含义 |
-| `gamepad_input` | 按键边沿、扳机档位、组合键互斥、按界面模式映射为动作、限速与合并、安全释放 | I²C、PTP/IP |
-| `camera_controller` | 执行相机命令，见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md#93-camera_controller状态机重连与命令) | 按键 |
-| `ui_presenter` | 界面模式、菜单光标、对焦框绘制，见 [界面设计](ui-design.md) | 相机协议 |
+| 实现 | 职责 |
+| --- | --- |
+| input_provider.c | task-safe非阻塞报告复制、固定16槽ring、各provider独立安全disconnect通知、opaque handle |
+| input_owner.c | 唯一报告消费者、来源/handle更新、1秒过期backlog拒绝、状态快照 |
+| input_reports.c | 来源选择、epoch/id去重、ID回退隔离、安全释放retry及baseline |
+| gamepad_input.c | 边沿、扳机迟滞、按键/重复/肩键映射，无协议与业务实现依赖 |
+| input_service.c | Camera/UI capabilities与epoch缓存、typed actions、停止join；没有直接Camera/UI门面依赖 |
 
-`gamepad_input` 运行在 `atom_link` 任务上下文中，每次轮询（约 50 ms）调用一次；它不阻塞，命令投递失败时触发统一释放并锁定到松开。
+Camera actions/controls/setting kernels归app_camera；它们不是Input provider的队列。输入私有kernel头不得跨功能component包含，公开provider API是唯一报告入口。
 
-## 3. 接口
+## 3. 接口与生命周期
 
-```c
-typedef struct {
-    bool     connected;          /* DS4 link_state == 已连接 */
-    uint32_t buttons;            /* 实时位图，已清除 local_mask */
-    int8_t   rx, ry;
-    uint8_t  lt, rt;
-    uint8_t  battery;            /* 0–10，255 不可用 */
-} gamepad_snapshot_t;
+公开input_provider.h版本1，注册一个source kind得到非零opaque handle；report包含connected/ATOM online/SIM、buttons、rx/ry、lt/rt、电池0..10或255、source_epoch/report_id、gap及独立event_valid/event_buttons。传入值复制，不持有caller pointer。epoch/id非零、每注册生命周期内不wrap；重置ID前增加epoch，provider重启须unregister/register，旧handle不能重新发布。
 
-/* gamepad_caps_t 提供已确认 AF/MF、变焦、镜头类型、录像及会话代数。 */
-void gamepad_input_init(gamepad_input_t *, pad_action_fn, void *context);
-void gamepad_input_online(gamepad_input_t *, const gamepad_snapshot_t *, const gamepad_caps_t *);
-void gamepad_input_event(gamepad_input_t *, uint32_t buttons, bool gap,
-                         const gamepad_caps_t *, uint32_t now_ms);
-void gamepad_input_snapshot(gamepad_input_t *, const gamepad_snapshot_t *,
-                            const gamepad_caps_t *, uint32_t now_ms);
-void gamepad_input_offline(gamepad_input_t *);
-```
+重复ID、旧epoch拒绝；ID倒退隔离该epoch，直到新epoch恢复。report ring满时返回NO_MEM，丢弃该来源排队报告并安排优先disconnect；其他来源保留。gap/reconnect只同步held基线，不把已按键当新press。来源切换失败release阻塞新按压，直到release/MF_CANCEL确认。
+
+Core先启动router与Input，再启动providers；关闭Input admission并等待完整释放后才停止providers及Camera。Input timeout保留worker和依赖owners，不强删。生命周期与当前规范以真实public header为准，不能用旧atom_link线程上下文推断执行位置。
 
 ## 4. 按键边沿
 
@@ -86,7 +70,7 @@ stateDiagram-v2
     Full --> Half: < 204
 ```
 
-**解锁条件**：DS4 连接、ATOM 重新上线或相机会话建立后，`armed = false`；只有观察到 LT、RT 同时处于 Released 后才置 `armed = true`。未解锁时状态机照常更新，但不产生任何相机命令。
+**解锁条件**：所选手柄连接、provider重新上线或相机会话建立后，`armed = false`；只有观察到 LT、RT 同时处于 Released 后才置 `armed = true`。未解锁时状态机照常更新，但不产生任何相机命令。
 
 **输出合成**（每次快照后计算，只在变化时发送）：
 
@@ -103,7 +87,7 @@ stateDiagram-v2
 | 输入 | 处理 |
 | --- | --- |
 | LB / RB | Wide / Tele；确认非电动变焦镜头且 MF 时近 / 远对焦。两键同按立即停止并锁定到均松开 |
-| A / B | SETTINGS / 热点页确认与返回，已接入 |
+| A / B | SETTINGS确认与MORE返回；Wi-Fi只信息，无热点编辑 |
 | Select（规划） | 仅当 `camera_model` 报告 MF 时切换对焦框开关 |
 | 右摇杆（规划） | 对焦框开启时移动绿框：死区 ±12，速度与偏移量成正比；R3 按下期间不计入 |
 | R3（规划） | 对焦框开启时绿框回中 |
@@ -139,13 +123,13 @@ typedef enum { CMD_PRIO_HIGH, CMD_PRIO_NORMAL } camera_cmd_prio_t;
 - ATOM 离线（连续 3 次事务失败）或 `boot_id` 变化；
 - DS4 `link_state` 离开“已连接”；
 - 相机会话关闭（之后相机命令无处发送，只清本地状态）；
-- `atom_link` 任务重启。
+- provider注销/注册、来源切换、报告过期/overflow或Input关闭。
 
 动作：
 
 1. 若当前 S2 按下，投递 S2 释放；若 S1 按下，投递 S1 释放；若正在变焦，投递 `ZOOM_STOP`（相机会话关闭时跳过投递）。
 2. 清除扳机状态机、`armed`、LB/RB 对焦重复计时和按压功能锁定；对焦框实现后也需清除待提交位置。
-3. 清除普通优先级队列中尚未执行的命令。
+3. 取消当前Input状态机待执行重复/目标；相机队列取消由typed安全动作及generation处理。
 4. 记录日志，包含原因和释放了哪些命令。
 
 重连后不得重放任何旧命令。
@@ -189,4 +173,8 @@ ATOM 使用独立 GATTC 客户端，以免覆盖 Classic DS4 HID 回调。扫描
 
 当前镜头类型来自用户确认，并非自动识别。POWER_ZOOM 下 L1/R1 请求 Wide/Tele，即使 ZoomEnableStatus 缺失或为 0 也允许提交，实际执行由相机响应决定；松开、同按、断连、切换来源均停止。更换镜头时需重新确认类型，不能沿用该声明推断新镜头。
 
-维护页 /api/controller 的 type=ds|xbox 保存到 ui_prefs/pad，默认及恢复出厂为 DS。atom_link 发现类型变化先离线释放，随后以 HELLO 参数字节 2 传递类型；ATOM 清空旧事件、增加来源代数并选择 DS4 或 BLE。调试 SIM 显式覆盖该选择，退出后恢复所选来源。
+维护页 /api/controller 的 type=ds|xbox 保存到 ui_prefs/pad，默认及恢复出厂为 DS。物理ATOM provider发现类型变化先离线释放，随后以 HELLO 参数字节 2 传递类型；ATOM 清空旧事件、增加来源代数并选择 DS4 或 BLE。调试 SIM 显式覆盖该选择，退出后恢复所选来源。
+
+## 2026-10-06 provider边界
+
+ATOM物理I²C与UART本地SIM已分为app_input_atom/app_input_sim；两者独立protocol client及normalized epoch/id，仅publish copied report至app_input。业务gamepad状态机、cap门禁、释放屏障与typed Camera/UI动作只有Input owner一份。本地SIM选择不停止物理ATOM心跳；SRC切换先释放再baseline，新来源held键不能当新press。SIM raw命令/readonly sequence leases经endpoint校验，播放器4jobs/8reserved completion，UART lifetime丢失取消已完成HOLD残留。Core quiesce先关闭Input，之后分别停止provider并归还ATOMdevice，不删除仍有资源未归还的worker。当前主机/编译证据见[provider迁移记录](../records/module-input-providers-20261006.md)，无本次实机时序/稳定性验收。

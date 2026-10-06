@@ -11,7 +11,7 @@ display fault once
 expect "LCD recovery complete" 8
 display fault persistent
 expect "LCD recovery attempt 3/3" 10
-expect "Display restart: camera_drained=1; NVS preserved" 10
+expect "Restart: maintenance_closed=1 normal_stopped=1; NVS preserved" 10
 expect "READY: LCD connection screen" 15
 wait 200
 status

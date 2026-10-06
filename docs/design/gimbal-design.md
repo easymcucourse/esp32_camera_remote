@@ -6,7 +6,7 @@
 
 ## 1. 前置改动
 
-当前 ATOM 只启用 Classic Bluetooth（`ESP_BT_MODE_BLE` 内存被释放，`CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y`）。实现云台前必须先完成 [Matrix LED 状态显示设计](matrix-led-design.md#bluetooth-双模限制) 中列出的双模改造，并验证 DS4 与 BLE 云台并发连接的稳定性和内存余量。
+当前 ATOM 已启用BTDM、BLE/GATTC，未释放BLE内存；BLE手柄客户端与Ultimate 2 parser已编译。云台协议/运动控制仍未实现，须验证DS4、BLE手柄与云台并发的内存/时序，见[双模限制](matrix-led-design.md#bluetooth-双模限制)。
 
 ## 2. 模块结构
 
@@ -19,7 +19,7 @@ flowchart LR
     link -->|"link_state"| status["matrix_status<br/>I²C 上报"]
 ```
 
-| 模块 | 文件 | 职责 |
+| 规划模块（尚未实现） | 规划文件 | 职责 |
 | --- | --- | --- |
 | `gimbal_control` | `m5_atom_matrix/main/gimbal_control.c` | 纯 C：输入快照和时间，输出目标速度或停止；回中状态机；软限位 |
 | `gimbal_link` | `gimbal_link.c` | BLE GAP/GATT 客户端；连接状态；命令写入与失败计数 |
@@ -130,7 +130,7 @@ typedef struct {
 
 ## 7. 测试
 
-主机单元测试（`m5_atom_matrix/tests/test_gimbal_control.c`）：
+计划新建主机单元测试（`m5_atom_matrix/tests/test_gimbal_control.c`，当前不存在）：
 
 - 死区边界、曲线单调性、正负对称、满偏输出为 ±1。
 - 校准偏移后中心输出为 0。

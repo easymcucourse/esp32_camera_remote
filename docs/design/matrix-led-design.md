@@ -2,7 +2,7 @@
 
 本文是 [Matrix LED 状态显示需求](../request/matrix-led-request.md) 的实现设计，定义物理映射、颜色取值、状态模型、状态来源、渲染时序和模块接口。图案、闪烁节奏、异常优先级等显示规则以需求文档为准。
 
-LED 渲染器只接收状态；BLE 手柄扫描 / 配对 / 标准电池服务读取由 `ble_gamepad` 独立模块提供。BLE 云台仍只有状态入口，未实现真实数据来源。BLE HID 按键尚未映射到 LCD，电量来源与输入来源分别验收。
+LED 渲染器只接收状态；BLE扫描/配对/标准电量与Ultimate 2报告由 `ble_gamepad`/parser提供，归一化输入经ds4_host/pad_publish与I²C上报LCD。其他BLE手柄兼容性仍待验收。云台只有状态入口，未实现真实数据来源；电量、输入与视觉分别验收。
 
 工作区已接入纯 C `matrix_model` 和独立 `matrix_status` 任务，包括启动、连接、三种异常、异步 HID 初始化超时与 RMT 恢复。主机图案和计时测试通过；物理四角映射、恢复故障注入及稳定性仍待实机验收。
 
@@ -232,11 +232,8 @@ atom_i2c_ready();
 
 ## Bluetooth 双模限制
 
-当前 `ds4_host_init()` 调用 `esp_bt_controller_mem_release(ESP_BT_MODE_BLE)`，并且 `sdkconfig.defaults` 中配置为 `CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y`、未启用 `CONFIG_BT_BLE_ENABLED`。要同时支持经典蓝牙手柄、BLE 手柄和 BLE 云台，后续必须：
+当前ds4_host以BTDM启动，defaults启用BTDM/BLE/GATTC，不再释放BLE内存；BLE客户端已编译。这完成了旧双模前置改造，仍未证明云台与两类手柄并发稳定性，后续需要：
 
-- 不再释放 BLE 内存；
-- 将控制器改为 BTDM 双模；
-- 启用 BLE Host/GATT Client 所需配置；
 - 明确 BLE 手柄和云台能否同时保持连接；
 - 重新测量内部 RAM、任务栈、扫描期间延迟和 DS4 稳定性；
 - 验证 Classic Bluetooth 与两个 BLE 连接并发至少 30 分钟。

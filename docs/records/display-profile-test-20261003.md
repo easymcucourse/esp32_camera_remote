@@ -24,7 +24,7 @@
 
 最终 LCD 开发 / 生产构建 `build/profile-final-build.log` / `build/profile-final-release.log` 成功，大小0x34ff10 / 0x3438c0；COM8最终应用烧录 `build/flash-profile-final.log`，保留已确认 ota_1 元数据及 NVS。生产 ELF 未定义合成 JPEG 编码或测试图生成符号，空命令桩保留。
 
-最终 `tools/uart_scripts/display-bench.uart` 13条命令通过：`build/display-profile-final-test.log`，三次二十帧全部成功，全屏6.51 / 6.55FPS、设置页3.26FPS；完整状态恢复为full / settings0 / SIM0 / 维护关闭 / 相机自动等待。行距搬移约27ms，设置页解码约161ms、叠加约25ms；全屏清零约0.4–0.9ms。此前 `build/display-stride-test.log` 亦13条通过，设置页3.27FPS。对比首次全屏4.75、设置页2.75的合成图数据，支持局部性能改善，仍非真实取景目标验收。
+最终 `tools/uart_scripts/legacy/display-bench.uart` 13条命令通过：`build/display-profile-final-test.log`，三次二十帧全部成功，全屏6.51 / 6.55FPS、设置页3.26FPS；完整状态恢复为full / settings0 / SIM0 / 维护关闭 / 相机自动等待。行距搬移约27ms，设置页解码约161ms、叠加约25ms；全屏清零约0.4–0.9ms。此前 `build/display-stride-test.log` 亦13条通过，设置页3.27FPS。对比首次全屏4.75、设置页2.75的合成图数据，支持局部性能改善，仍非真实取景目标验收。
 
 SIM拒绝测试首次失败：`atom sim on` 请求已发布，但 ATOM链路的状态快照尚未更新，下一条基准被接纳；已改为同时检查同步的SIM请求标志与链路快照，基准期间拒绝切换SIM传输。`build/display-final-test.log` 及上述最终脚本均通过紧邻 `atom sim on` 的拒绝测试。失败后已清除SIM，无NVS修改。
 

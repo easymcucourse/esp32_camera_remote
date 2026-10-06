@@ -10,7 +10,7 @@
 
 #define FONT_BLOB(name, file) __asm__( ".section .rdata\n" \
     ".global _binary_" name "_start\n" \
-    "_binary_" name "_start:\n.incbin \"components/board_7b/fonts/" file "\"\n" \
+    "_binary_" name "_start:\n.incbin \"components/app_ui/fonts/" file "\"\n" \
     ".global _binary_" name "_end\n" \
     "_binary_" name "_end:\n.text\n")
 FONT_BLOB("inter_ui_ttf", "inter_ui.ttf");

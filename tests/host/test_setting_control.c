@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "setting_control.h"
+#include "sony_props.h" /* Original fixture value name, aliases generic choices. */
 int main(void)
 {
     sony_mode_state_t m = {.values = {1, 2, 3, 4}, .current = 1, .count = 4, .writable = true};

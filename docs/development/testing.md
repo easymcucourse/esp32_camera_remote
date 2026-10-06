@@ -2,13 +2,13 @@
 
 本文汇总项目的测试分层、现有测试、计划新增的测试、实机与故障注入测试、长时间稳定性测试以及 CI 方案。各模块的具体测试用例写在对应设计文档中，本文只做汇总和约定。
 
-> 2026-10-03 按当前 `tests/host/CMakeLists.txt` 构建并执行：54 项全部通过（49 个 C 可执行文件及两个 Python 工具测试，属性样本程序注册四项测试）。CI 配置已加入，远端 Actions 尚未执行。文末日期段落为各轮历史结果，不代表当前总数。
+> 当前263项CTest通过（2026-10-06，module-wifi-backend-contract批次），原54保留；真实注册以tests/host/CMakeLists.txt和ctest清单为准。CI已接入但远端Actions尚未执行。以下日期段落只代表当时实现/构建/硬件状态。
 
 ## 1. 测试分层
 
 | 层级 | 运行环境 | 目的 | 现状 |
 | --- | --- | --- | --- |
-| 主机单元测试 | PC，gcc / clang、Python 3 | 解析、编码、状态机、脚本工具 | 统一 CTest 54 项 |
+| 主机单元测试 | PC，gcc / clang、Python 3 | 解析、编码、状态机、脚本工具 | 当前263项（原54保留；最新记录见module-wifi-backend-contract） |
 | 主机工具验证 | PC | 字体渲染、界面截图、抓包样本解析 | `font_preview_host` |
 | 编译检查 | CI，ESP-IDF 5.5.1 | 两个工程开发 / 关闭模拟构建 | 四项矩阵已配置，远端待验证 |
 | 实机功能测试 | 开发板 + 相机 + 手柄 | 按需求文档的验收测试逐项确认 | 手工 |
@@ -22,11 +22,11 @@
 - 纯 C11，只用 `assert` 和标准库，不引入测试框架；与现有 `m5_atom_matrix/tests` 风格一致。
 - 新增纯逻辑模块尽量不依赖 FreeRTOS / lwIP；时间由调用方传入。现有 transport、NVS 和发送适配回归使用 `network_stubs`、`identity_stubs`、`tx_stubs`、`display_stubs` 与日志替身，不等同于硬件驱动测试。
 - 编译选项：`-std=c11 -Wall -Wextra -Werror`；CI 中另加 `-fsanitize=address,undefined`。
-- 每个测试是独立可执行文件，返回 0 表示通过。
+- CTest条目可以是一个C可执行用例场景或Python测试容器，不能将条目数等同于程序/内部断言数。返回0表示该条目通过。
 
 ### 当前注册测试
 
-统一执行命令见 [编译与烧录](build-and-flash.md#主机测试)，以下名称为 CTest 注册名。
+统一执行命令见 [编译与烧录](build-and-flash.md#主机测试)。下表是原54基线名称，部分退休实现已归tests/support/legacy且不参与固件；旧auth/menu/factory/fd fixtures证明历史回归，不代表当前生产接口。新增当前覆盖见后表。
 
 | 测试 | 数量 | 覆盖 |
 | --- | ---: | --- |
@@ -52,6 +52,20 @@
 
 `focus_input` 是旧模块回归，当前 LCD 固件改用 `gamepad_input`；单元测试仍保留。全部测试通过不证明实机时延、相机效果、真实 Flash / FIFO 或灯阵视觉效果。
 
+### 当前拆分覆盖与限制
+
+| 领域 | 真实被测实现/边界 | 证据限制 |
+| --- | --- | --- |
+| Console | router/request/reply/cancel/deadline/lease/endpoint、UART reader/gateway/typed encoders | fake scheduler不证明SMP，encoder fake端点不证明业务效果 |
+| Input | provider registry/owner/reports/gamepad/service、物理与SIM独立provider | equivalence从public report API比较77动作，不包含实际两端协议/无线输入 |
+| Wi-Fi | facade/backend jobs/saved record/channel、message桥/TCP lane | 后端read自动repair仍写NVS；Core no-writer测试只启动编排，非Flash证明 |
+| Camera/PTP/Sony | generic backend契约、唯一PTP实例同fixture、session/discovery/control/producer/endpoint/JPEG槽 | 原fd/reservation辅助在legacy；fake backend不证明相机响应 |
+| UI/display | surface/board、model/messages/frame lease、endpoint/bench/renderer停止/fixed文本 | 新增Debug/Release真实ui_jpeg_renderer控制流矩阵，decode库与surface仍stub，不证明真实像素/同步 |
+| Core/maintenance | mode/boot barrier/order/failure cleanup/stop、独立Web+真实cJSON/OTA/store | HTTP/NVS fake不证明网络隔离/Flash/cache-off；SDK HTTP同步stop无严格项目join预算 |
+| 构建/边界 | public/private扫描、真实component graph、静态库直接symbol edges、Release禁符号 | callback/ops间接路径须源码核对，remote CI及硬件未跑 |
+
+最新host261全回归见 [帧总线集成](../records/module-frame-bus-20261006.md)；[Sony控制层合并](../records/module-sony-control-merge-20261006.md) 为260全回归及三LCD构建；ATOM两配置见 [五配置核对](../records/module-api-build-audit-20261006.md)；各批次源/命令和范围在 [记录目录](../records/README.md)。不使用主机绿灯代替硬件验收，也不将源码注释当通过证据。
+
 ### 后续测试计划
 
 已存在的 `ptp_session`、`atom_protocol`、`gamepad_input`、`wifi_config` 不再列为待新增；其故障注入及硬件覆盖仍需扩展。
@@ -61,7 +75,7 @@
 | `test_ptpip_packet`、`test_ptp_dataset`、`test_sony_props`、`test_sony_format`、`test_ui_presenter` | `tests/host/` | [Sony PTP/IP 客户端分层设计](../design/sony-ptpip-design.md#12-测试) |
 | `test_matrix_status`（灯阵渲染） | `m5_atom_matrix/tests/` | [Matrix LED 状态显示设计](../design/matrix-led-design.md#主机渲染测试) |
 | `test_gimbal_control` | `m5_atom_matrix/tests/` | [BLE 云台控制设计](../design/gimbal-design.md#7-测试) |
-| `test_maint_auth`、`test_ota_header` | `tests/host/` | [维护页面设计](../design/maintenance-design.md#10-测试) |
+| OTA/trigger/Web/factory当前fixtures | `tests/host/` | [维护页面设计](../design/maintenance-design.md#7-验证范围)；原auth仅legacy保留，不应重新实现 |
 
 ### 新增回归（2026-10-02）
 
@@ -126,7 +140,7 @@ PC 端模拟相机计划作为 `tools/` 下的新脚本，读取导出的样本�
 | `host` | Ubuntu 24.04，Clang / Python | 离线文档链接检查、全部 CTest；Debug 保留 assert，启用 ASan / UBSan 与失败退出 |
 | `firmware` | `espressif/idf:v5.5.1`，四项矩阵 | LCD / ATOM × debug / release；使用独立 sdkconfig，关闭模拟的版本检查模拟符号未链接 |
 
-[构建入口](../../tools/ci_build.py) 使用工程 sdkconfig.defaults 与 tools/ci 对应覆盖，不读取本机根目录 sdkconfig。每项生成 size.json，并上传应用 / bootloader / 分区表、ELF、MAP、flash_args 和 sdkconfig。硬件测试、烧录和发布仍属于独立验收。
+[构建入口](../../tools/ci_build.py) 使用工程 sdkconfig.defaults 与 tools/ci 对应覆盖，不读取本机根目录 sdkconfig。每项生成size.json并上传应用/bootloader/分区表、ELF、MAP、flash_args和sdkconfig。LCD额外执行实际component graph与静态库symbol门禁，上传component-graph/module-symbol-edges JSON；Release检查SIM/benchmark/fault禁符号，LCD限制5MiB且rollback启用。硬件测试、烧录和发布仍属于独立验收。
 
 组件版本以 dependencies.lock 和组件 manifest 为准；当前不缓存 managed_components。大小增长超过 5% 的基线比较 / 提示尚未接入。要求所有作业通过才能合并是目标，仓库分支保护是否启用尚未确认。远端工作流未执行，不能把本机测试通过记为 Actions 通过。
 
@@ -171,3 +185,13 @@ ctest --test-dir build/host --output-on-failure
 新增 camera_menu，CTest 合计 23 项通过。覆盖真实快照的 ISO / EV / WB / Focus / Metering、夹紧边界、反向目标合并、旧回报、signed EV、只读 / 缺失 / 重复 / 截断描述；快门 / 光圈相对步进的等待、反向合并、拒绝、超时、无值保护及计时回绕。gamepad_input 增加 SETTINGS 隔离、400 / 150 ms 重复、多方向互锁、gap 和界面切换后的松键要求。sony_write 增加两项 ControlDeviceB int8 线格式验证。LCD 构建通过，代码测试不证明相机实际接受单步命令或菜单视觉正确。
 
 Ultimate 2 增量回归：`ultimate2_report` 覆盖实机 HID 描述严格匹配、所有截断 / 字段变化拒绝、33 字节输入、轴 / 扳机边界、方向和按键；`pad_publish` 覆盖 DS4 优先、持键接入不生成按下、来源切换清缓存、断线归零、SIM 切换和事件 ID / 丢弃计数保留。
+
+2026-10-06 新增独立OTA真实源码14场景、Core健康检查9场景与Core启动OTA初始化失败1场景，主机147/147；JSON/SDK为fake，不能替代flash/HTTP/关闭竞争实机，见[证据](../records/module-maintenance-ota-20261006.md)。
+
+2026-10-06 新增实际Web+真实cJSON独立回归12场景及共享偏好存储8场景，167/167；Linux host须libcjson-dev，本机cmake可传-DMODULE_CJSON_SOURCE_DIR=<SDK components/json/cJSON>，不将SDK/HTTP fake当实机网络证据。见[记录](../records/module-maintenance-web-20261006.md)。
+
+真实Wi-Fi周期换代事件的payload与Camera契约已新增检查，修复前复现、修复后全261通过，见[网络事件核对](../records/module-network-event-20261006.md)。本fixture时间/发送仍fake，网络与SMP及时性待实机验证。
+
+LCD NVS写入口增加允许/旁路/全局擦除正反例门禁，完整262通过，见[owner核对](../records/module-storage-owner-20261006.md)。词法门禁不代替Flash/SMP验证。
+
+真实wifi_esp32 factory与facade新增SDK边界fixture，覆盖partial init清理、event loop归属、start失败以及stop timeout保留/重试；完整263通过，见[契约记录](../records/module-wifi-backend-contract-20261006.md)。

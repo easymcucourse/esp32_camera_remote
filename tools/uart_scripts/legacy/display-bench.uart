@@ -1,0 +1,26 @@
+# Developer firmware only. Starts/ends full, maintenance off and SIM off.
+# Each benchmark pauses the camera and displays 20 synthetic 1024x576 JPEGs.
+# Frame rate measures local display work, not the camera/network pipeline.
+wait 4000
+status
+expect "settings=0"
+expect "sim=0"
+expect "info=full"
+display bench
+expect "synthetic=1 frames=20" 35
+S
+display bench
+expect "synthetic=1 frames=20" 35
+S
+display bench
+expect "synthetic=1 frames=20" 35
+maint on stop
+!lcd display bench
+maint off
+atom sim on
+!lcd display bench
+atom sim off
+status
+expect "settings=0"
+expect "sim=0"
+expect "heap min_internal="

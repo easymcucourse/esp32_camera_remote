@@ -1,6 +1,8 @@
 # 当前系统架构
 
-本文按 2026-10-03 工作区源码描述模块、任务、协议与持久化。代码接入不代表实机验收通过，验证证据及剩余需求见 [实施状态](../development/implementation-status.md)。后续目标接口见 [Sony PTP/IP 分层设计](sony-ptpip-design.md)。
+本文按 2026-10-06 工作区源码描述模块、任务、协议与持久化。代码接入不代表实机验收通过，验证证据及剩余需求见 [实施状态](../development/implementation-status.md)。后续目标接口见 [Sony PTP/IP 分层设计](sony-ptpip-design.md)。
+
+当前实际编译依赖（含 post-project HTTP bind 边）和运行关系见 [模块关系图](module-dependency-graph.md)。任务、队列、缓冲和停止约束的逐个 owner 核对见 [资源所有权表](module-resource-ownership.md)。
 
 ## 1. 系统组成
 
@@ -13,31 +15,30 @@ flowchart LR
     PC["PC 串口"] -- "UART 115200" --> LCD
 ```
 
-LCD 工程位于根目录，ATOM 独立工程位于 `m5_atom_matrix/`。LCD 不启用触摸；ATOM 当前仅支持经典蓝牙 DS4，BLE Xbox 兼容手柄与云台尚未实现。左摇杆不上报 LCD，L3 从实时位图和缓存事件中清除。引脚、时序见 [硬件配置](hardware-design.md)。
+LCD 工程位于根目录，ATOM 独立工程位于 `m5_atom_matrix/`。LCD 不启用触摸；ATOM包含经典蓝牙DS4与BLE手柄客户端/Ultimate 2报告解析；具体已测设备范围见实施状态，不保证全部Xbox兼容手柄。云台真实控制仍待实现。左摇杆不上报 LCD，L3 从实时位图和缓存事件中清除。引脚、时序见 [硬件配置](hardware-design.md)。
 
 ## 2. 软件模块
 
 ### LCD 端
 
-| 模块 / 文件 | 当前职责 |
+| 模块 | 当前职责与边界 |
 | --- | --- |
-| `main/app_main.c` | NVS / 配置 / 显示及任务启动后返回；health 每 10 秒记录内存并处理显示耗尽重启 |
-| `main/wifi_config.*`、`wifi_apply.*` | 纯 C 默认值、字段校验、100 字节记录、随机密码、保存与驱动重启 / 回滚策略 |
-| `main/wifi_ap.*`、`factory_reset.*` | AP / DHCP / 目标 RSSI、NVS、异步配置队列；全部重置前停止并保留相机维护占用，成功后重启 |
-| `main/wifi_menu.*`、`wifi_menu_ui.*` | 热点草稿、SSID 编辑、二次确认及异步结果；相机离线时也可导航 |
-| `main/camera_identity.*`、`camera_link.*` | GUID / peer 读取、迁移、确认、清除；唯一候选选择及退避 |
-| `main/camera_controller.c`、`camera_pair.h` | socket 所有者、双通道握手、Sony 初始化、取景生产、属性刷新、控制执行及维护占用 |
-| `main/gamepad_input.*`、`camera_actions.*` | 输入边沿、扳机迟滞、按键映射、方向键重复；高优先级动作缓存及独立释放屏障 |
-| `main/setting_control.*`、`camera_menu.*` | Mode 与七项参数的目标合并、回读确认、拒绝及超时；Focus 菜单与 X 共用状态 |
-| `main/atom_link.*`、`common/atom_client.*` | I²C v2 主机收发、HELLO / POLL、重试、事件确认、boot_id / gap 及输入清理 |
-| `main/camera_console.*`、`wifi_console.*`、`common/debug_args.*` | LCD 按行串口、兼容单字符命令、Wi-Fi 命令及恢复出厂确认 |
-| `main/liveview_pipeline.*` | 取景对象 JPEG 边界检查、双槽上下文、解码工作任务和帧统计 |
-| `components/ptpip/` | 可取消 socket 传输、事务期限、数据 / 响应校验、Probe 与事件消费、DeviceInfo 解析 |
-| `components/sony_camera/` | 完整属性描述顺序遍历、标量 / 能力解析及 Sony 控制写入 |
-| `components/board_7b/` | LCD / I²C 初始化、board_lcd 帧同步 / 恢复、JPEG 解码、参数保存与绘制；`ui_fonts` 管理字体缓存 |
-| `common/atom_protocol.*` | 两端共用的 CRC8、编解码与请求接收重同步 |
+| `main/app_main.c` | 仅调用 `app_core_start()`，检查启动错误；无服务实现或兼容转发 |
+| `app_core` | 唯一组合根：NVS 初始化、Wi-Fi 对象、启动屏障、模式竞争、生命周期、停止顺序、维护存储回调、OTA 健康确认及重启；公共头只提供版本与 start |
+| `app_console` | typed message router、endpoint/订阅、request/reply、readonly lease；UART gateway 读取与编码，不依赖功能模块实现 |
+| `app_wifi` / `wifi_esp32` / `app_wifi_messages` | 通用网络对象；ESP32 AP/NVS/配置 jobs；正常发现/RSSI/两 TCP lane 消息桥。保存配置仅维护 Web 修改，正常 UART 只查询 |
+| `app_maintenance` | 启动页端口80 trigger、无认证维护 Web、配置/偏好/工厂恢复/OTA/退出；只经注入 ops 请求 Core 独占与重启，无 Camera/UI/Input/Console 实现依赖 |
+| `common_runtime` | 共享纯值逻辑、Wi-Fi config 编码、I²C 结果格式、ui_prefs 与 camera identity NVS primitives；正常偏好启动读取，配对确认保留内部 RAM worker |
+| `app_input` | report 仲裁、来源 epoch、边沿/迟滞/释放屏障、按键映射；仅以 typed Camera/UI 消息执行业务 |
+| `app_input_atom` / `atom_protocol` | 独占物理 I²C device/monitor；原始 report 经 provider API 提交 Input。同步 prepare 不启动 worker；协议纯逻辑由两端共享 |
+| `app_input_sim` | Debug 独立模拟 provider/player；UART 只发 message。Release 保留空组件注册，无实现编译源和符号 |
+| `app_camera` | 唯一 backend owner、身份/发现/连接、设置状态机、动作缓存、双 JPEG 槽及端点；运行时请求/状态通过消息，public 生命周期仅 Core 调用 |
+| `camera_backend` / `camera_backend_sony` | 通用纯 C ops 契约；私有 Sony factory、属性/能力/控制/取景编码，内嵌唯一 PTP client |
+| `ptpip` | 实例化 session/transaction/deadline/cancel；仅 typed Wi-Fi channel request/reply，无裸 socket、lwIP 或 Wi-Fi 实现依赖 |
+| `app_ui` | 私有 model、连接/设置页、JPEG 解码/overlay、字体、Debug benchmark；唯一普通画布使用者。偏好正常只读；维护排空后清空 model 并固定 `MAINTENANCE` |
+| `display_surface` / `board_7b` | 唯一写 lease/generation；板级 I²C、电源、RGB/GDMA 双帧缓冲与恢复。硬件头 private，其他功能模块不可绕过 UI |
 
-`main/focus_input.*` 仍有主机回归，但已不在 LCD 的 `main/CMakeLists.txt` 中；运行时输入由 `gamepad_input` 处理。`camera_model`、`ui_presenter` 和通用 `display` 接口仍为目标设计。`board_7b` 尚未完成硬件、界面与相机领域模型的分离。
+原主机逻辑及退休 API 的回归辅助代码保存在 `tests/support/legacy/`，不编入固件。Console→ATOM 的旧共享 formatter 引用已迁 common_runtime；真实依赖与静态库符号检查覆盖直接调用边，间接 callback/ops 仍需结合源码和实机验证。实施与未验收项目见 [拆分进度](../development/module-split-status.md) 与 [验收清单](../development/module-split-checklist.md)。
 
 ### ATOM 端
 
@@ -53,39 +54,26 @@ LCD 工程位于根目录，ATOM 独立工程位于 `m5_atom_matrix/`。LCD 不�
 
 ## 3. 启动顺序
 
-LCD 的 `app_main` 按以下顺序执行：
+LCD 的 `app_main` 只调用 `app_core_start()`，Core 的当前顺序为：
 
-1. `nvs_flash_init()`；失败记录错误、保留 NVS，继续使用默认热点配置。
-2. `wifi_ap_load_config()` / `wifi_ap_get_config()`，从 NVS 加载配置。
-3. `board_7b_init()`、`board_7b_set_wifi_info()`，按密码显示开关绘制连接页；堆完整性检查。
-4. `wifi_menu_ui_start()` / `ui_preferences_start()`，先建立 UI 输入队列并加载显示偏好。
-5. `atom_link_start()`，复用板级 `I2C_NUM_0` 总线。
-6. `wifi_ap_start()`，启动热点及配置工作任务。
-7. `maint_mode_start()` / `camera_pair_console_init()`，创建维护控制任务、单槽 MF 请求队列及行控制台。
-8. `camera_jpeg_start()`；创建内部 RAM 的 health 任务，app_main 返回释放初始化大栈。
+1. 初始化 NVS（失败保留内容），创建并绑定 Wi-Fi 对象，读取保存配置。
+2. 初始化 UI 连接页，设置网络信息并检查堆。
+3. `app_core_input_providers_prepare()` 同步添加板级 I²C 总线上的 ATOM 设备；此时没有 provider task、endpoint 或 Input 注册。
+4. `app_core_wifi_start()` 启动 AP/配置 owner；初始化独立维护服务并开放启动页端口 80 trigger。
+5. 仅在模式仍为 STARTUP 时，依次启动 router/System/UI/Input、正常网络 bridge、ATOM/Debug SIM provider、Camera/UART。每个阶段之间重新检查模式；已在执行的创建调用由 boot 屏障保护，直到返回后才能关闭资源。
+6. 现有 endpoints 注册完成后冻结订阅；正常启动必须有 UART，UART 创建失败时 producer 不启动并返回错误。提前维护 claim 可跳过普通 endpoints，无需冻结。标记 OTA startup，创建原内部 RAM health task，释放 boot 屏障，初始化调用返回。
 
-ATOM：`matrix_status_init()` → 按键 GPIO → `atom_i2c_start()` → 存储启动阶段 → `ds4_host_init()` → `atom_i2c_ready()` → 10 ms 主循环。HID 初始化结果由异步回调提交灯阵模型。LCD 保持 ATOM 先于 Wi-Fi 的启动次序，相关实机问题见 [Wi-Fi 记录](../records/wifi-test-20261002.md)。
+启动页 HTTP 可先竞争为 ACTIVATING；exclusive 等待 boot 屏障后才关闭、排空正常 owners，再清空 UI model、发布唯一 MAINTENANCE 画面并激活维护。等待超时或初始化错误转 RESTART，不能恢复正常。初始化错误释放屏障后先关闭 HTTP，再尝试正常 owner 排空；返回原错误，由 app_main fatal 处理，失败排空的资源保留到重启。局部 UI/Input 组合失败先排空 IPU 再停止 router，详见 [初始化失败记录](../records/module-startup-failure-20261006.md)。
+
+ATOM 固件启动顺序保持 `matrix_status_init()` → 按键 GPIO → `atom_i2c_start()` → 存储 → `ds4_host_init()` → `atom_i2c_ready()` → 10 ms 主循环。LCD 的 I²C 设备准备仍在 AP 前，正常 ATOM task 已移至 trigger 后；这种调整尚未经过真实 I²C/AP 启动与 cache-off 验证，不能沿用旧实机安全结论。旧问题见 [Wi-Fi 记录](../records/wifi-test-20261002.md)，当前源码/主机/构建证据见 [启动顺序整理](../records/module-startup-order-20261006.md)。
 
 ## 4. 任务与核心
 
 ### LCD 端
 
-| 任务 | 核心 | 优先级 | 栈 | 生命周期 / 职责 |
-| --- | --- | --- | --- | --- |
-| `main` | 默认 | 默认 | 32KiB（默认配置） | 初始化结束后返回 / 删除，释放字体初始化栈 |
-| `health` | 不限 | 2 | 4096 字节，内部 RAM | 常驻；内存日志、显示耗尽后的排空 / 软重启 |
-| `maint_ctl` | 不限 | 2 | 3072 字节，内部 RAM | 常驻；维护异步启停、超时与相机 lease |
-| `httpd` | 不限 | 3 | 6144 字节，内部 RAM | 仅维护开启时存在；认证 / 网页 / 设备信息 |
-| `camera_pair` | 0 | 4 | 32KiB，PSRAM | `j` / `p` 创建、结束删除；socket 及相机控制唯一所有者 |
-| `jpeg_decode` | 1 | 4 | 32KiB，PSRAM | 每个取景会话创建、排空删除；解码及发布 JPEG |
-| `lcd_status` | 1 | 2 | 32KiB，PSRAM | 常驻；异步绘制连接屏，显示锁保护恢复与字体缓存；不阻塞输入 / NVS 工作任务 |
-| `camera_nvs` | 不限 | 4 | 4096 字节，内部 RAM | 临时身份读取 / 保存；相机任务等待完成 |
-| `atom_link` | 不限 | 4 | 3072 字节 | 常驻；在线轮询周期约 50 ms |
-| `debug_console` | 不限 | 2 | 4096 字节，内部 RAM | 两端常驻；最多 255 字节行输入，Enter 执行，状态 / 日志 / 请求号 |
-| `wifi_menu` | 不限 | 2 | 4096 字节 | 常驻；热点菜单输入与完成结果 |
-| `wifi_config` | 不限 | 2 | 4096 字节 | 常驻；NVS / 热点重启、2 秒客户端更新及 10 秒客户端日志 |
+任务的 CPU、优先级、栈、创建/停止位置及保留资源统一列在 [资源所有权表](module-resource-ownership.md)，避免维护两份不同的数值表。当前任务包括 Core health、Console router/UART、Input、ATOM/Debug SIM、Camera producer/endpoint/临时 identity、UI endpoint/connection refresh/Debug benchmark、Wi-Fi bridge/两 TCP lane/config、维护 HTTP。
 
-Wi-Fi、lwIP、esp_timer 等由 ESP-IDF 管理。大栈位于 PSRAM；Flash 写入由内部栈工作任务执行。
+初始化 main 栈为32768字节，返回后由 SDK 回收。Camera producer 和 UI drawing/endpoint 大栈位于 PSRAM；NVS 操作使用内部 RAM worker 或内部 HTTP 栈。health 常驻；正常模式停止 trigger HTTP，独占维护停止正常 owners 并保留 AP。不存在旧 maint_ctl、Wi-Fi 菜单/偏好 worker 或单独 JPEG decode task。Wi-Fi、lwIP、esp_timer 等基础任务由 SDK 管理。
 
 ### ATOM 端
 
@@ -102,33 +90,17 @@ Bluedroid / HID Host 回调只提交快照、事件缓存和状态。
 
 ## 5. 队列与同步
 
-| 对象 | 形式 | 所有权 / 作用 |
-| --- | --- | --- |
-| `free_slots` / `ready` | 两个深度 2 的 FreeRTOS 队列 | `camera_pair` 与 `jpeg_decode` 交接槽；结束项 `slot=-1` |
-| `done` | 二值信号量 | 解码任务排空后才允许释放流水线 |
-| `camera_actions` | 纯 C，32 项缓存 + 独立释放屏障 | 输入投递，socket 所有者执行；`controls_mux` 保护、generation 拒绝旧动作 |
-| `mode_steps`、`focus_mode_steps`、`menu_steps[7]` | 原子步数 | 输入任务累加，相机任务消费；最终目标保存在 `setting_control` / `camera_menu` |
-| `focus_requests` | 深度 1 的队列 | MF 请求覆盖旧请求，执行前校验能力、取消代数、generation 与有效期 |
-| 热点配置请求 | 深度 2 队列，8 槽结果记录 | 复制配置、token 查询完成；只淘汰已完成结果 |
-| 热点菜单输入 | 深度 16 队列 | `atom_link` → `wifi_menu`；缺口 / 断开取消草稿 |
-| ATOM 收包 | 深度 8 队列 | 从机 ISR → `atom_i2c` 任务；溢出丢弃不完整请求 |
-| `display_mutex`、`frame_done` | 互斥量、计数信号量 | 显示、字体与帧缓冲互斥；发布后等待两次帧完成，单次等待上限 1 秒 |
-| 运行状态及 UI 元数据 | 原子变量 / 短临界区复制 | 参数、电量、热点文本、菜单状态与连接代数 |
+Console 提供有界 control/bulk inbox、16 request waiters 和32 readonly lease slots；每个 endpoint 的容量及成功停止后保留对象见 [资源表](module-resource-ownership.md)。消息带 request/correlation、绝对 deadline、generation/epoch，迟到结果不能改变新会话。取消需要 owner 确认，停止不强制回收仍在使用的 lease。
 
-曝光 Mode 不再使用深度 32 的 `mode_requests` 队列。输入任务不操作相机 socket，也不执行 NVS 写入。维护占用阻止新相机请求，等待旧 socket 所有者与解码任务退出；全部重置成功后保留占用直到设备重启。
+Input 使用静态16 report ring及各 provider disconnect 通知；正常关闭先完整 release，Camera/Router 保留到 release 完成。Camera 控制缓存与独立释放屏障、目标合并和 focus queue 属于 Camera owner；Wi-Fi 两 TCP lane 各自独占 channel 和 jobs/control queues。配置 queue2/results8 属于 Wi-Fi backend，维护可重启该 owner；它不恢复普通业务模式。
+
+独占维护关闭 admission 后按依赖排空 UART/Input/providers/benchmark、Camera physical/endpoint、正常网络、UI endpoint/renderer，最后 System/router。初始化失败和停止失败保留资源并进入重启；单项1000/3000ms预算不构成全流程统一时限，SDK HTTP stop 同步 join 没有项目层严格有界保证。
 
 ## 6. 缓冲区与所有权
 
-| 缓冲 | 位置 / 大小 | 所有者 |
-| --- | --- | --- |
-| 取景对象槽 ×2 | PSRAM，各 1MiB | 队列交接，单槽同一时刻仅属于生产或解码任务；属性读取仍复用空闲槽 |
-| LCD 帧缓冲 ×2 | PSRAM，各 1024×600×2 字节 | `board_7b`；前台扫描、后台解码绘制 |
-| DMA bounce buffer ×2 | 内部 RAM，各 30 行 | LCD 驱动，合计约 120KiB |
-| TJpgDec 工作区 | PSRAM，4KiB | `board_7b` |
-| `esp_new_jpeg` 解码器，最多一个 | 堆 | 全尺寸或 768×432 缩放，切换路径先释放未使用实例 |
-| 字形缓存 | PSRAM | `ui_fonts`，显示锁内访问，见 [字体说明](../../components/board_7b/fonts/README.md) |
+Camera 开机预分配两个512KiB PSRAM槽以 readonly JPEG lease交给 UI，经 Console 转发；最后引用及 completion metadata都归还后才可复用。UI 在 CPU1 的 endpoint 解码、获取唯一 surface lease、绘制 overlay及refresh，成功/坏帧/丢帧/停止都须归还 JPEG引用，停止等待真实使用者退出。
 
-每帧先处理事件、释放动作及必要的属性 / 参数事务，再读取 `0x1009` 到空闲槽并交给 CPU1 解码。CPU1 发布帧后归还槽，因此网络接收与显示可以重叠。
+board 管理两个1024×600 RGB565 PSRAM frame buffers与10行内部bounce buffers（两块共40960字节）；surface区分扫描/绘制和generation，不引入第三全屏copy。UI decoder/TJpgDec工作区和字体cache所有权详见 [资源表](module-resource-ownership.md)。固定维护画面需要保留面板、字体及显示同步对象；normal model清空并冻结，不能把维护切换描述成释放所有内存。
 
 ## 7. 相机连接状态机
 
@@ -164,11 +136,11 @@ select 每最多 100 ms 检查停止，事务使用绝对期限；中断数据�
 | --- | --- |
 | 连接页 | 标题、SSID、按开关处理的密码、动态 IP、ATOM / DS4 / 云台状态及连接阶段；云台当前为禁用 / 未连接 |
 | LIVE | 1024×576 取景、右上角八行状态（含相机电量与对焦模式）、左上角录像计时及底部控制状态 |
-| SETTINGS | 768×432 缩略图、右侧 16 行（含七项参数与 WI-FI 入口）、下方九项扩展参数、目标与终态 |
-| 热点菜单 | SETTINGS 右栏显示 SSID、密码、随机密码、信道、显示开关、应用、两级重置及返回 |
+| SETTINGS | 768×432 缩略图、右侧17行/9项导航（七项参数、Wi-Fi信息、MORE）、下方九项扩展参数、目标与终态 |
+| MAINTENANCE | 排空普通业务、清空 model 后仅黑底白字固定 `MAINTENANCE`；其他绘制请求永久拒绝 |
 | 显示失效 | 失去同步后停止帧缓冲写入；优先复用缓冲重启 RGB / GDMA，驱动错误才删除 / 重建面板；重置解码器，三次失败后排空相机并软重启 |
 
-Start 或串口 `S` 切换设置偏好，相机离线时也能导航热点页。Y 切下一曝光 Mode，X 切下一 Focus，L1 / R1 为 Wide / Tele；确认非电动变焦镜头且 MF 才启用近 / 远对焦替代，当前用户确认电动变焦镜头，替代分支不启用。RT 半压驱动 S1、全压驱动 S2；LT 半压无动作，全压请求录像目标；相机动作和菜单视觉仍待验收，见 [手柄手册](../user-guide/controller.md)。
+Start 或串口 `S` 切换设置偏好，Wi-Fi信息只读，热点修改、偏好保存与恢复出厂通过启动页维护 Web 完成。Y 切下一曝光 Mode，X 切下一 Focus，L1 / R1 为 Wide / Tele；确认非电动变焦镜头且 MF 才启用近 / 远对焦替代，当前用户确认电动变焦镜头，替代分支不启用。RT 半压驱动 S1、全压驱动 S2；LT 半压无动作，全压请求录像目标；相机动作和菜单视觉仍待验收，见 [手柄手册](../user-guide/controller.md)。
 
 ## 9. 协议版本
 
@@ -180,15 +152,15 @@ Start 或串口 `S` 切换设置偏好，相机离线时也能导航热点页。
 
 ATOM 在线 POLL 周期 50 ms，写后等待 15 ms；失败保持 seq / ack 重试，连续三次失败才离线；离线每秒探测，版本不匹配每 5 秒重试。重启重新 HELLO，重连先丢弃旧缓存，gap 只同步位图并取消旧操作。完整协议见 [I²C v2 设计](i2c-protocol-design.md)，15 ms 响应上限与长期稳定性仍需实测。
 
-## 10. 持久化
+## 10. 持久化与 OTA
 
-| 设备 | 命名空间 / 键 | 内容 |
+| 设备 | 命名空间 / 键 | 内容与写入所有权 |
 | --- | --- | --- |
-| LCD | `sony_remote/guid` | 16 字节 PTP/IP 身份，首次生成 |
-| LCD | `sony_remote/peer` | 成功 Sony 初始化后保存的相机 MAC[6] + GUID[16] |
-| LCD | `wifi_ap/cfg` | 100 字节应用记录：SSID、密码、信道、密码显示开关；Wi-Fi 驱动仍用 RAM |
+| LCD | `sony_remote/guid`、`peer` | GUID16字节、MAC6+GUID16配对记录；common_runtime primitive，正常首次身份/配对确认使用 Camera 内部 RAM worker；Web all reset直接清除 |
+| LCD | `wifi_ap/cfg` | 100字节SSID/密码/信道/显示开关记录；Wi-Fi backend唯一SDK/NVS owner，Core启动层不主动保存；后端无效blob仍自动修复，国家范围无效值仅RAM回退 |
+| LCD | `ui_prefs/schema`、`pad`、`info` | schema1、控制器/信息等级；common_runtime唯一存储，普通启动加载，Web保存或all reset后重启生效 |
 | ATOM | `ds4_host/peer` | 上次手柄地址；蓝牙绑定由蓝牙栈保存 |
 
-默认热点为 `easycamctrl` / `00000000` / 信道 6 / 显示密码；保存配置优先。只重置热点会删除 `wifi_ap/cfg`，相机身份保留；全部重置另清除 `sony_remote` 并重启 LCD，不清除 ATOM 的手柄绑定。相关操作见 [串口手册](../user-guide/serial.md)。
+默认热点 `easycamctrl` / `00000000` / 信道6 / 显示密码。Web Wi-Fi reset保存默认热点；all额外清除Sony配对并重置UI偏好，不清除ATOM绑定。正常UART/LCD没有配置保存、factory或配对清除入口。NVS初始化错误保留内容；原子跨namespace事务不存在，失败可能部分改变记录，证据见 [Web恢复记录](../records/module-web-factory-20261006.md)。
 
-LCD 分区为 `nvs` 0x9000（24KiB）、`phy_init` 0xF000、`factory` 0x10000（12MiB）、`data` SPIFFS 0xC10000（0x3F0000，当前未使用），没有 OTA 分区。NVS 初始化失败保留内容并降级运行，NVS 分区修复仍未实现。
+当前 partitions.csv：nvs `0x9000/0x6000`，otadata `0xF000/0x2000`，phy_init `0x11000/0x1000`，ota_0 `0x20000/6MiB`，ota_1 `0x620000/6MiB`，data SPIFFS `0xC20000/0x3E0000`。无 factory app分区。CI限制LCD镜像≤5MiB；OTA只写非当前分区，完整校验后切换，Core对pending镜像进行60秒健康确认，失败进入SDK回退重启。分区/Flash实际更新与OTA实机恢复尚待验证，见 [构建与烧录](../development/build-and-flash.md)。

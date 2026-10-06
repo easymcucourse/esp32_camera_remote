@@ -1,10 +1,5 @@
 #include "i2c_monitor.h"
 #include <string.h>
-const char *i2c_monitor_result_name(i2c_mon_result_t r)
-{
-    static const char *const names[]={"OK","TIMEOUT","BAD_CRC","BAD_HEADER","BAD_SEQ","REMOTE","IO","BAD_PARAM"};
-    return (unsigned)r<I2C_MON_RESULT_COUNT?names[r]:"UNKNOWN";
-}
 i2c_mon_result_t i2c_monitor_response(const uint8_t *b,size_t size,atom_request_t req,uint8_t length)
 {
     if (!b || size<7 || b[0]!=0x5a || b[1]!=ATOM_PROTOCOL_VERSION || b[3]!=req.cmd ||

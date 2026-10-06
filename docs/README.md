@@ -233,3 +233,4 @@ docs/
 - [EV 方向实测](records/ev-direction-test-20261004.md)
 - [LT 完整状态清理与烧录](records/lt-record-regression-20261004.md)
 - [新版录像失败日志分析](records/record-failure-log-20261004.md)
+- [启动内存与相机／I²C 通信修复](records/communication-recovery-test-20261006.md)

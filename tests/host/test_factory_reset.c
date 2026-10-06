@@ -1,10 +1,10 @@
 #include <assert.h>
 #include <stdio.h>
-#include "factory_reset.h"
+#include "app_core_factory.h"
 typedef struct {
     bool acquire_ok, fail_save, fail_forget, fail_rollback, held, forgot, fail_ui, ui_reset;
     unsigned saves, releases, sequence;
-    app_wifi_config_t store;
+    network_config_t store;
 } fake_t;
 static bool acquire(void *context)
 {
@@ -13,7 +13,7 @@ static bool acquire(void *context)
 }
 static void release(void *context)
 { fake_t *f = context; assert(f->held); f->held = false; ++f->releases; }
-static bool save(void *context, const app_wifi_config_t *config)
+static bool save(void *context, const network_config_t *config)
 {
     fake_t *f = context; assert(f->held); ++f->saves;
     if (f->saves == 1) {
@@ -34,7 +34,7 @@ static bool reset_ui(void *context)
 int main(void)
 {
     const factory_reset_ops_t ops = {acquire, release, save, forget,reset_ui};
-    app_wifi_config_t current; wifi_config_make_default(&current); current.channel = 11;
+    network_config_t current; network_config_make_default(&current); current.channel = 11;
     fake_t f = {.store = current};
     assert(factory_reset_all(&current, &ops, &f) == FACTORY_RESET_BUSY);
     assert(!f.saves && !f.releases && !f.forgot && f.store.channel == 11);
@@ -54,6 +54,8 @@ int main(void)
     f=(fake_t){.store=current,.acquire_ok=true,.fail_ui=true};
     assert(factory_reset_all(&current,&ops,&f)==FACTORY_RESET_UI_FAILED);
     assert(f.ui_reset && f.forgot && !f.held && f.store.channel==11);
+    assert(factory_reset_all(NULL, &ops, &f) == FACTORY_RESET_INVALID);
+    assert(factory_reset_all(&current, NULL, &f) == FACTORY_RESET_INVALID);
     puts("Factory camera lease, NVS failure, rollback and reboot gate tests passed");
     return 0;
 }

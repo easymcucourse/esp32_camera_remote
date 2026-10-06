@@ -1,5 +1,7 @@
 # 全需求实施与验收状态
 
+2026-10-06 结构拆分的当前实现与待办见 [拆分进度](module-split-status.md)和[逐项清单](module-split-checklist.md)。以下为 2026-10-04 及以前的实现/烧录/硬件历史：其中旧 PIN、正常热点编辑、触摸板偏好切换和维护菜单已被拆分计划取代，不能当作当前入口说明。当前源码仅在启动页通过无认证维护 Web 修改配置；历史硬件结论不能代替新架构实测。
+
 <a id="latest-20261004"></a>
 
 ## LT、电量与 EV 核对（2026-10-04）
@@ -60,7 +62,7 @@
 | 主题 | 原文档问题 | 已同步到的源码事实 |
 | --- | --- | --- |
 | I²C | 架构和索引仍写 v1 / v2 未实现 | `common/atom_protocol.*` / `atom_client.*`：v2、CRC8、HELLO / POLL、boot_id / gap、三次失败判离线 |
-| 相机属性 | 当前设计仍写 Mode 特征搜索 / 完整描述未接入 | `sony_props.c` / `camera_controller.c` 已顺序遍历完整描述，再发布属性与控制能力 |
+| 相机属性 | 厂商描述经通用backend转换 | `sony_props.c` / Sony backend完整描述→`app_camera/camera_runtime.c`语义snapshot，发布属性与控制能力；解析源码物理迁入Sony backend仍待清理 |
 | 手柄 | 相机手册仍写 L1/R1 切 Mode、X/Y 对焦 | `gamepad_input.c`：Y Mode、X Focus、肩键变焦 / 条件 MF；真实镜头类型仍 UNKNOWN |
 | 热点与身份 | 架构 / 排错称热点不保存、NVS 失败复位 | `app_main.c` / `wifi_ap.c`：应用记录 wifi_ap/cfg，NVS 错误保留数据并使用默认热点 |
 | 全部重置 | 串口 / 手柄 / 设计称 factory all 或 RESET ALL 未实现 | `factory_reset.*` / `wifi_console.c` / `wifi_menu_ui.c`：二次确认、停止并占用相机、重置热点与 LCD 相机身份、成功重启；实机未验收 |

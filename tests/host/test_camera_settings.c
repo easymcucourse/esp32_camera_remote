@@ -1,3 +1,4 @@
+#include "../support/legacy/ui_camera_vendor_codes.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

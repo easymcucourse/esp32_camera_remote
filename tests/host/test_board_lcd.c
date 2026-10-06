@@ -1,5 +1,5 @@
 #include "board_lcd.h"
-#include "board_7b.h"
+#include "board_dimensions.h"
 #include "esp_lcd_panel_rgb.h"
 #include "freertos/semphr.h"
 #include <assert.h>
@@ -33,7 +33,7 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, TickType_t timeout)
 esp_err_t esp_lcd_new_rgb_panel(const esp_lcd_rgb_panel_config_t *cfg, esp_lcd_panel_handle_t *out)
 {
     assert(!active); ++creates;
-    assert(cfg->num_fbs == 2 && cfg->timings.pclk_hz == 18000000 && cfg->bounce_buffer_size_px == 30720);
+    assert(cfg->num_fbs == 2 && cfg->timings.pclk_hz == 18000000 && cfg->bounce_buffer_size_px == 10240);
     if (create_failures) { --create_failures; return ESP_ERR_NO_MEM; }
     assert(generation < 32); active = &panels[generation++]; *out = active; return ESP_OK;
 }
@@ -88,19 +88,19 @@ int main(void)
     assert(board_lcd_publish(board_lcd_back_buffer()) == ESP_ERR_TIMEOUT);
     assert(!board_lcd_ready() && !board_lcd_back_buffer());
     assert(board_lcd_publish(back) == ESP_ERR_INVALID_STATE);
-    delete_failures = 1; buffer_failures = 1; reset_failures = 2; notices = 1000;
+    reset_failures = 2; notices = 1000;
     unsigned before = creates;
-    assert(board_lcd_recover(prepare) == ESP_OK && creates == before + 2);
-    assert(board_lcd_back_buffer() == active->buffers[1] && back != board_lcd_back_buffer());
-    before = creates; assert(board_lcd_recover(prepare) == ESP_OK && creates == before);
+    assert(board_lcd_recover(prepare) == ESP_OK && creates == before);
+    assert(board_lcd_back_buffer() == back);
+    assert(board_lcd_recover(prepare) == ESP_OK && creates == before);
     draw_failure = true; assert(board_lcd_publish(board_lcd_back_buffer()) == ESP_FAIL);
-    create_failures = 3; reset_failures = 1; before = creates;
-    assert(board_lcd_recover(prepare) == ESP_ERR_NO_MEM && creates == before + 3);
-    assert(!active && !board_lcd_ready() && !board_lcd_back_buffer());
-    notices = 0; before = creates;
-    assert(board_lcd_recover(prepare) == ESP_ERR_TIMEOUT && creates == before + 1);
-    assert(!active && !board_lcd_back_buffer());
-    notices = 1000; assert(board_lcd_recover(prepare) == ESP_OK);
+    reset_failures = 3;
+    assert(board_lcd_recover(prepare) == ESP_FAIL && creates == before);
+    assert(active && !board_lcd_ready() && !board_lcd_back_buffer());
+    notices = 0;
+    assert(board_lcd_recover(prepare) == ESP_ERR_TIMEOUT && creates == before);
+    assert(active && !board_lcd_back_buffer());
+    notices = 1000; assert(board_lcd_recover(prepare) == ESP_OK && creates == before);
     assert(board_lcd_test_fault(3) == ESP_ERR_INVALID_ARG);
     assert(board_lcd_test_fault(1) == ESP_OK);
     assert(board_lcd_publish(board_lcd_back_buffer()) == ESP_ERR_TIMEOUT);
@@ -109,6 +109,6 @@ int main(void)
     assert(board_lcd_publish(board_lcd_back_buffer()) == ESP_ERR_TIMEOUT);
     assert(board_lcd_recover(prepare) == ESP_ERR_TIMEOUT && !board_lcd_back_buffer());
     assert(board_lcd_test_fault(0) == ESP_OK && board_lcd_recover(prepare) == ESP_OK);
-    assert(successful_deletes == generation - 1 && deletes == successful_deletes + 1);
+    assert(generation == 1 && !successful_deletes && !deletes && creates == 1);
     puts("LCD framebuffer ownership, stale callbacks, partial setup and bounded recovery passed");
 }

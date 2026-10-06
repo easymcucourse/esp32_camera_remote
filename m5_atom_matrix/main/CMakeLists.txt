@@ -1,8 +1,9 @@
 idf_component_register(SRCS "app_main.c" "atom_console.c" "pad_console.c" "../../common/debug_args.c" "../../common/debug_line.c" "../../common/debug_console.c" "atom_i2c.c" "atom_slave_tx.c" "matrix_status.c" "matrix_model.c" "ds4_host.c" "ds4_report.c" "ds4_events.c" "../../common/atom_protocol.c"
     INCLUDE_DIRS "." "../../common"
     PRIV_REQUIRES driver esp_driver_i2c esp_driver_gpio esp_driver_rmt bt nvs_flash esp_driver_uart esp_app_format)
-target_sources(${COMPONENT_LIB} PRIVATE "../../common/i2c_monitor.c" "../../common/i2c_debug.c")
+target_sources(${COMPONENT_LIB} PRIVATE "../../common/i2c_monitor.c" "../../common/i2c_monitor_format.c" "../../common/i2c_debug.c")
 target_sources(${COMPONENT_LIB} PRIVATE "ble_gamepad.c" "ble_advertisement.c" "ultimate2_report.c" "pad_publish.c")
+target_sources(${COMPONENT_LIB} PRIVATE "../../common/async_token.c")
 if(CONFIG_REMOTE_DBG_SIM)
     target_sources(${COMPONENT_LIB} PRIVATE "../../common/pad_cmd.c" "../../common/pad_player.c" "../../common/atom_fault.c" "../../common/debug_hex.c" "matrix_debug.c")
 endif()

@@ -13,7 +13,7 @@ from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / '.reference' / 'fonts'
-ASSETS = ROOT / 'components' / 'board_7b' / 'fonts'
+ASSETS = ROOT / 'components' / 'app_ui' / 'fonts'
 
 
 def fetch(url, name):

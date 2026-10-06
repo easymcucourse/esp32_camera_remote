@@ -1,0 +1,15 @@
+# 2026-10-06 Camera/System端点及路由器停止
+
+app_console_router_quiesce现在除了关闭admission/退休所有endpoint/取消waiters/归还queued leases/等待consumer-owned lease，还等待原message_router housekeeping task确认退出。新增atomic housekeeping_running在创建前发布、task退出前归还、创建失败回收；worker仍在时router_start返回INVALID_STATE，防止正常restart时两份housekeeping同时存活。原4096/internal/priority5、25ms poll保持，不强删任务。超时保留所有者并保持关闭；成功后仍保留原queues/mutex/waiter信号用于将来的normal router restart，不新建第二套route/queue。
+
+Camera原private endpoint_stop无期限，新增camera_endpoint_quiesce(timeout)和Core-only app_camera_messages_quiesce。只有physical producer已排空/maintenance_gate持有、input/bench/factory producers已停止时才允许退休Camera endpoint；等待endpoint_done有期限，timeout保留results queue/worker与runtime messages_started，不强删task。成功才排空result metadata并删除queue、清messages_started。Core同步清自己的messages_started，后续endpoint重建可复用冻结固定订阅。Camera subscription缓存仅在router未冻结时重新建立，冻结restart复用，不在freeze后重新订阅。旧void stop兼容入口暂留供既有host调用，生产Core改用新有界API；最终private/public兼容API清理仍缺。
+
+新增Core sole System consumer的app_core_messages_quiesce，先退休System再router等待，停止期间不执行queued业务。Core健康重启：physical Camera drain后停止Camera endpoint；随后配置worker/Wi-Fi bridge、prefs/UI message/renderer成功后才关闭System/router，防止先关router导致JPEG/TCP consumer仍持lease。每步的依赖成功条件明确。当前原健康重启策略在失败后仍最终重启，这条链尚未接到不可逆maintenance激活，不能以其编译通过证明S3.4/A31完整实现。Core启动失败分支完整清理/整体composition root仍待最终整理。
+
+扩展原router fixture保留全部旧断言，fake scheduler真实运行housekeeping退出：held consumer lease仍不可撤销；drain完但housekeeping暂停时stop0返回false、restart拒绝；worker实际确认后stop成功。原stop0成功断言通过在unlock后调度已停止task保留，未改成功条件。真实Camera endpoint fixture验证stop0/20ms timeout保留queue、之后task退出释放retained metadata、重复stop、frozen订阅restart和router未冻结重新订阅。真实Camera runtime fixture验证无physical gate拒stop、endpoint timeout保留messages_started、完成stop幂等。Core policy fixture验证仅成功才清自己的endpoint状态；System fixture验证先退休System再router、timeout/重试不调用额外factory动作。原54注册与旧断言保留，115/115主机通过，-Werror保持。fake并非RTOS/SMP/SDK/hardware或所有stop交错的完整证明。
+
+LCD Default `0x35c130`、Stable `0x35b310`、Release `0x350130`构建成功，均小于5MiB/6MiB分区；三ELF包含生产Camera/System/router quiesce调用，Release无SIM/bench/Debugfault/encoder/维护UART探针符号。module boundaries与diff通过，最终文档检查补充如下。日志build/module-router-stop-{host-build,host,default,stable,release}.log。
+
+ATOM本批无改动未重建；无烧录、实机验证、提交或推送。所有本批build sessions终态，无本批后台串口/构建，其他聊天未检查。完整目标active，下一步Core启动组合根及独立app_maintenance/无认证startup SoftAP:80 trigger/不可逆mode、旧维护认证/菜单与兼容API删除、固定显示Core绑定及全项审计。
+
+最终文档检查120文档/522链接/0问题，diff通过。

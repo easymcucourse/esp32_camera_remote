@@ -29,7 +29,7 @@ python -m pip install -r tools/requirements.txt
 
 ## LCD 串口命令
 
-LCD 的 `pair_console` 按行读取，Enter 执行，单字符命令仍兼容；Wi-Fi 配置与两级恢复出厂命令见 [串口手册](../user-guide/serial.md)。
+LCD 的 Console UART gateway 按行读取，Enter 执行，并通过 typed message 请求相应 endpoint。Wi-Fi 和 UI 偏好仅可查询；配置、清除身份和恢复出厂须在启动界面的维护 Web 操作。完整命令见 [串口手册](../user-guide/serial.md)。
 
 | 命令 | 功能 |
 | --- | --- |
@@ -37,7 +37,8 @@ LCD 的 `pair_console` 按行读取，Enter 执行，单字符命令仍兼容；
 | `s` | 取消网络等待、清除控制请求、排空解码任务并关闭连接，保留最后画面 |
 | `S` | 切换设置显示模式 |
 | `p` | 配对及同一 GUID 重连诊断，需先停止取景 |
-| `u` | 空闲时清除相机身份；先 `s` 并等 `Camera task finished`，再 `u`、`j/p` 重新配对 |
+| `wifi show` | 查询当前和保存的热点配置 |
+| `ui info` / `ui pad` | 查询启动时加载的显示和手柄偏好 |
 
 ## 常用示例
 
@@ -86,17 +87,13 @@ python tools/test_camera_connection.py --port COM8 --connect-wait 120 --steady 3
 
 ## 日志中的关键字
 
+以下按当前源码列出。旧AP READY/client列表、INIT ACK/InitFail和逐vendor参数日志已随旧实现删除；当前使用UART status的Wi-Fi/Camera语义快照与错误码排查，旧日志不能作新固件必达标记。
+
 | 关键字 | 来源 | 含义 |
 | --- | --- | --- |
-| `AP READY` | `wifi_ap` | 热点已启动 |
-| `Connected clients:` / `Client MAC=` | `wifi_ap` | 每 10 秒的客户端列表、IP 和 RSSI |
-| `INIT ACK: camera=` | `camera_pair` | 相机接受 PTP/IP 连接 |
-| `InitFail reason=` | `camera_pair` | 相机拒绝连接，通常需要重新进入配对等待画面 |
-| `SESSION VERIFIED` | `camera_pair` | OpenSession 成功 |
+| `SESSION VERIFIED` | `camera_pair` | backend完整Sony初始化成功，不只OpenSession |
 | `LIVEVIEW RUNNING` | `camera_pair` | 开始连续取景 |
-| `LIVEVIEW frames=… fps=…` | `camera_pair` | 约每 5 秒一次的帧率、读取和显示耗时、解码任务栈余量 |
-| `Setting 0x… target=…` / `Menu 0x…` | `camera_pair` | Mode 目标或菜单参数写入，成功响应仍需属性回读确认 |
-| `Camera disconnected` | `camera_pair` | 会话中断，按 1–30 秒退避重试 |
+| `LIVEVIEW frames=… fps=…` | `app_ui` | 约每 5 秒一次的帧率、Camera 读取和 UI 显示耗时、UI endpoint 栈余量 |
 | `CAMERA DISCOVERED` / `PAIRING SAVED` | 相机模块 | DHCP 目标已找到 / Sony 初始化成功后已保存绑定 |
 | `LCD frame synchronization timed out` | `board_7b` | 显示失效，需要重启 |
 | `ATOM v2 online` / `Transaction failed` / `ATOM link lost` | `atom_link` | v2 握手、重试及离线状态 |

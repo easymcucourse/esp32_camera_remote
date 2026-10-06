@@ -18,7 +18,7 @@
 - 工程源码全局使用 `-O2` 优化，Octal PSRAM 运行于 120MHz。
 - 串口暂停、恢复、配对诊断；通信失败后重试连接。
 
-当前代码已接入离线维护网页、PIN 登录、热点设置、安全重启与双分区 OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 标准电池服务已接入并读到 Ultimate 2 的 88%；云台真实电量来源仍待接入。
+当前代码已接入启动页独占维护网页、无认证热点/偏好设置、恢复出厂、重启与双分区OTA。Matrix 第一、第二、第三行分别显示 DS 手柄、BLE 手柄、云台电量；BLE 标准电池服务已接入并读到 Ultimate 2 的 88%；云台真实电量来源仍待接入。
 
 显示局部合成 JPEG 基准约 **6.5 FPS**，设置页约 **3.26 FPS**，见 [显示实测](docs/records/display-profile-test-20261003.md)。本轮视频模式录像期间实际连续取景约 **5.6–6.5 FPS**，用户确认红框和画面更新，实体 DS4 LT 启停也通过；照片 M 模式远程录像未通过，详见 [录像与 Aspect 实测](docs/records/record-border-aspect-test-20261003.md)。这些短窗口不证明所有模式性能或30分钟稳定性。
 
@@ -77,7 +77,7 @@ Flash / PSRAM 的高频配置参考 [Waveshare 官方性能配置](https://docs.
 3. 首次连接进入配对等待画面；若提示确认，允许 **ESP32-Camera-Remote**。
 4. 页面依次显示等待相机、连接会话、配对确认和等待预览；第一帧成功解码显示后自动进入连续取景，上下各留 12 像素黑边。连接失败或取景断开后返回状态页并自动重试。
 
-相机地址从 AP 客户端 DHCP 租约动态取得；未绑定时只接受唯一可达候选，绑定后按已保存 MAC 和相机 GUID 重连。更换相机先停止，再串口 `u` 清除相机身份。热点默认值在 `main/wifi_config.h`，用户配置保存到 NVS `wifi_ap/cfg`，可通过手柄热点页或串口修改。连接恢复已完成主机回归和实机连接测试，见 [烧录与连接测试](docs/records/connection-test-20261001.md)；热点重启后的 DHCP 恢复仍需关注。流程见 [相机连接](docs/user-guide/camera.md)。
+相机地址从 AP 客户端 DHCP 租约动态取得；未绑定时只接受唯一可达候选，绑定后按已保存 MAC 和相机 GUID 重连。更换相机先停止，再串口 `u` 清除相机身份。热点默认值在 `common/network_config.h`，用户配置保存到 NVS `wifi_ap/cfg`，可通过手柄热点页或串口修改。连接恢复已完成主机回归和实机连接测试，见 [烧录与连接测试](docs/records/connection-test-20261001.md)；热点重启后的 DHCP 恢复仍需关注。流程见 [相机连接](docs/user-guide/camera.md)。
 
 ## 串口控制
 
@@ -153,17 +153,25 @@ python tools/serial_log.py --port COM8 --seconds 60 --output build/lcd-input.log
 
 ## 故障排查与恢复
 
-常见连接、显示及 ATOM 问题见 [故障排查](docs/user-guide/troubleshooting.md)。只重置热点可用 factory wifi，热点、LCD 相机身份和显示档位一起重置可用 factory all，两者都需 10 秒内输入 factory confirm。全部重置停止相机后清除指定记录，成功重启 LCD，ATOM 手柄绑定保留；该路径的实机效果仍待验收。热点菜单也提供两级二次确认，操作见 [手柄手册](docs/user-guide/controller.md#热点页)。
+常见连接、显示及ATOM问题见 [故障排查](docs/user-guide/troubleshooting.md)。配置修改与恢复出厂通过 [启动页维护网页](docs/user-guide/quick-start.md#维护网页) 完成，无PIN/login；热点客户端拥有全部维护权限。热点重置保留相机身份，全部重置另清LCD配对和显示偏好，成功后重启，ATOM绑定保留。UART factory/u与手柄编辑/reset入口已删，当前拆分版实机重置仍待验收。
 
 ## 项目结构
 
 ```text
-main/                  启动、Wi-Fi AP、连接控制、身份、手柄输入及解码流水线
-components/board_7b/   LCD 初始化、JPEG 解码、帧同步、字体及参数显示
-components/ptpip/      PTP/IP 传输、报文、会话及标准数据集解析
-components/sony_camera/ Sony 扩展命令、属性及能力解析
-common/                两端共用 I²C 协议、LCD 链路状态机和串口参数解析
-tests/host/            54 项 CTest（含维护 JSON / 热点、UART / I²C 监视 / 手柄模拟、ATOM 测试和四份属性样本）
+main/                  ESP-IDF入口，仅调用Core
+components/app_core/   启动组合根、模式/排空、维护存储回调与health/restart
+components/app_console/ typed router、request/reply/lease与UART gateway
+components/app_wifi*/  通用网络facade与正常消息桥；wifi_esp32拥有SDK/NVS/channel
+components/app_input*/ report仲裁、ATOM物理provider与Debug SIM provider
+components/app_camera/ 相机唯一owner、身份/发现/控制与JPEG消息lease
+components/app_maintenance/ 独立trigger/Web/OTA与网页资源
+components/app_ui/     私有model、页面/JPEG渲染、偏好加载与字体
+components/display_surface/ RGB565画布租约、提交、取消和恢复
+components/board_7b/   LCD-7B面板、I²C扩展器与RGB/GDMA后端
+components/ptpip/      实例化PTP/IP，typed网络channel，无裸socket
+components/camera_backend*/ 通用契约与Sony私有backend
+common/                两端纯协议/值逻辑及共享基础设施
+tests/host/           原54回归加当前模块/错误路径测试，完整结果见拆分记录
 m5_atom_matrix/        M5Stack ATOM Matrix 独立 ESP-IDF 子项目
 docs/                  硬件配置、协议分析和实测记录
 tools/                 编译、串口记录、自动连接测试、抓包与离线分析
@@ -174,7 +182,7 @@ partitions.csv         NVS、OTA 元数据、PHY、双 6MiB 应用和 data 分�
 
 `build/`、`managed_components/`、`captures/`、`backups/`、`.reference/` 和本地 `sdkconfig` 不提交。文档引用的原始抓包、固件备份和日志仅保存在开发机器上；脱敏属性裁剪样本提交在 `tests/host/fixtures/`。代码与文档核对结果见 [实施状态](docs/development/implementation-status.md#代码与文档核对2026-10-03)。
 
-LCD 字体采用 Inter（英文）、思源黑体（中文）和 JetBrains Mono（参数数字），通过 FreeType 按实际字号进行灰度抗锯齿渲染，字形缓存置于 PSRAM。裁剪后的字体及原始许可证随工程提交，具体覆盖范围、内存开销和资源生成方法见 [字体说明](components/board_7b/fonts/README.md)。
+LCD 字体采用 Inter（英文）、思源黑体（中文）和 JetBrains Mono（参数数字），通过 FreeType 按实际字号进行灰度抗锯齿渲染，字形缓存置于 PSRAM。裁剪后的字体及原始许可证随工程提交，具体覆盖范围、内存开销和资源生成方法见 [字体说明](components/app_ui/fonts/README.md)。
 
 ## 抓包与协议分析
 

@@ -1,20 +1,21 @@
 #include <assert.h>
 #include <stdio.h>
 #include "camera_actions.h"
+#include "camera_backend.h" /* Queued item and semantic backend action coexist. */
 static void put(camera_actions_t *q, pad_action_type_t type, int value, uint32_t now)
 {
     assert(camera_actions_submit(q, (pad_action_t){type, value, q->generation}, now));
 }
 static void take(camera_actions_t *q, pad_action_type_t type, int value, uint32_t now)
 {
-    camera_action_t a;
+    camera_queued_action_t a;
     assert(camera_actions_next(q, now, &a));
     assert(a.action.type == type && a.action.value == value);
     camera_actions_complete(q, &a, true);
 }
 int main(void)
 {
-    camera_actions_t q = {0}; camera_action_t a;
+    camera_actions_t q = {0}; camera_queued_action_t a;
     camera_actions_session(&q, true);
     put(&q, PAD_ACTION_S1, 1, 0); put(&q, PAD_ACTION_S2, 1, 0);
     put(&q, PAD_ACTION_S2, 0, 1); put(&q, PAD_ACTION_S1, 0, 1);

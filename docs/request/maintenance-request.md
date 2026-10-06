@@ -1,5 +1,8 @@
 # 维护页面需求
 
+> 2026-10-06 迁移更新：以根目录[拆分计划](../../main-module-split-plan.md)3.9为准，旧PIN/登录/认证要求已被无认证策略取代。实际Web/OTA已归app_maintenance，authentication:none，热点任意客户端有全部权限；settings写版本存储并重启，退出也是重启。下文旧可恢复模式/认证/任务描述保留为原设计历史，不是当前实现指令。startup trigger、不可逆Core切换、固定画面和Web factory已有源码、主机与编译验证，启动顺序整理及实机验收仍未完成。当前实现与验证见[Web重置记录](../records/module-web-factory-20261006.md)与[Core切换记录](../records/module-core-maintenance-20261006.md)。
+
+
 本文定义 LCD 主机在自身热点上提供的网页维护页面：用手机或电脑连接热点后，通过浏览器查看设备信息、修改热点 SSID 和密码、上传新固件（OTA）。目的是在没有 USB 线和 ESP-IDF 环境时也能更新固件和修改热点配置。
 
 > 维护开关、PIN / 登录、热点设置、安全重启与 LCD OTA 检查 / 上传 / 进度 / 双分区回滚已接入。设备回环上传、损坏镜像拒绝和确认前复位回退已有实测；手机浏览器、真实在线相机及完整故障验收仍待完成。验证维度见 [实施状态](../development/implementation-status.md)。

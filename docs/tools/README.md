@@ -7,3 +7,5 @@
 | [抓包工具](capture.md) | `capture.ps1`、`analyze.py`、`extract_liveview_sample.py`、`extract_property_sample.py` |
 
 编译脚本 `idf.ps1` 和串口脚本 `serial_log.py` 的说明在 [开发文档](../development/README.md)。
+
+UART回放只使用 `tools/uart_scripts/` 当前脚本；`legacy/` 保留已退休维护/偏好流程的原内容供历史证据对照，不用于新固件。显示基准脚本先经设置页进入NORMAL；UI偏好脚本只查询并确认旧写命令被拒绝。当前脚本还需新固件实机回放，语法检查不代表硬件PASS。

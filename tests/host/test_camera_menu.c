@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "camera_menu.h"
+#include "camera_menu_sony_legacy.h"
+#include "sony_props.h" /* Original dataset fixture aliases generic choice state. */
 #include "ptpip_packet.h"
 #include "sony_codes.h"
 

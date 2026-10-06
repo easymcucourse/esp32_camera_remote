@@ -1,6 +1,5 @@
 #pragma once
 // Existing wire values; names do not change encoding or validation.
-#define PTPIP_PORT 15740
 #define PTPIP_PROTOCOL_VERSION 0x00010000u
 #define PTPIP_DATA_PHASE_NONE_OR_IN 1u
 #define PTPIP_DATA_PHASE_OUT 2u
@@ -18,8 +17,5 @@ typedef enum {
 #define PTP_OC_GET_OBJECT_INFO 0x1008
 #define PTP_OC_GET_OBJECT 0x1009
 #define PTP_RC_OK 0x2001
-#define PTP_TYPE_INT16 3
-#define PTP_TYPE_UINT16 4
-#define PTP_TYPE_UINT32 6
 
 #define PTP_RC_ACCESS_DENIED 0x200f

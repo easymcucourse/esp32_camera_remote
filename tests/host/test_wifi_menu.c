@@ -1,13 +1,13 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
-#include "wifi_menu.h"
+#include "ui_wifi_menu_kernel.h"
 static wifi_menu_t m;
 static wifi_menu_effect_t input(wifi_menu_input_t i, int d, uint32_t now)
 { return wifi_menu_input(&m, i, d, now); }
 int main(void)
 {
-    app_wifi_config_t config; wifi_config_make_default(&config);
+    network_config_t config; network_config_make_default(&config);
     wifi_menu_open(&m, &config, 11);
     assert(input(WIFI_MENU_CONFIRM, 0, 0) == WIFI_MENU_NONE && m.editing);
     input(WIFI_MENU_MOVE, 1, 0); assert(m.edit[0] == 'f');
@@ -37,7 +37,7 @@ int main(void)
     wifi_menu_tick(&m, 1999); assert(!m.confirm_reset);
     input(WIFI_MENU_CONFIRM, 0, 2000);
     assert(input(WIFI_MENU_CONFIRM, 0, 4999) == WIFI_MENU_APPLY);
-    assert(!strcmp(m.draft.ssid, WIFI_DEFAULT_SSID) && m.draft.channel == 6 && m.draft.show_password);
+    assert(!strcmp(m.draft.ssid, NETWORK_DEFAULT_SSID) && m.draft.channel == 6 && m.draft.show_password);
     m.row = WIFI_ROW_RESET_ALL;
     assert(input(WIFI_MENU_CONFIRM, 0, 0) == WIFI_MENU_NONE && m.confirm_reset);
     assert(input(WIFI_MENU_CONFIRM, 0, 2999) == WIFI_MENU_RESET_ALL && !m.confirm_reset);

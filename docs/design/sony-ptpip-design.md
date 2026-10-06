@@ -1,8 +1,8 @@
 # Sony PTP/IP 相机连接与分层设计
 
-本文集中说明相机连接的当前实现、已确认协议及后续分层设计。对应 [相机连接需求](../request/sony-ptpip-request.md)，操作步骤见 [相机连接手册](../user-guide/camera.md)。当前实现核对日期：2026-10-03。
+本文集中说明相机连接的当前实现、已确认协议及后续分层设计。对应 [相机连接需求](../request/sony-ptpip-request.md)，操作步骤见 [相机连接手册](../user-guide/camera.md)。相机生产模块核对日期：2026-10-06；显示已迁入 app_ui，见 [拆分进度](../development/module-split-status.md)。第1–14节为重构前问题、协议观测和旧接口草案；旧socket/fd/Sony目录方案已由最终main拆分计划替代，不是待实施的结构。
 
-阅读时区分三个层次：本节“当前实现”按代码核对；协议观测以 [历史记录](../records/protocol-analysis.md) 和 [2026-10-01 抓包分析](../records/protocol-analysis-20261001.md) 为依据；第 1–14 节保留重构背景与目标接口，不能据此认定全部模块已经实现。新加入的连接恢复、MF 控制及扩展参数读取已通过主机测试与固件构建，已烧录；实机通过项目、发现的问题及剩余验收见 [烧录与连接测试](../records/connection-test-20261001.md)。
+阅读时区分三个层次：本节“当前实现”按代码核对；协议观测以 [历史记录](../records/protocol-analysis.md) 和 [2026-10-01 抓包分析](../records/protocol-analysis-20261001.md) 为依据；第1–14节保留历史协议依据及已被替代的草案；FOCUS_POINT/放大等未实现功能与结构迁移分开，不要求重新建立旧fd adapter。2026-10-01 版本的连接恢复、MF 控制及扩展参数读取有历史烧录记录；2026-10-06 模块迁移仅完成主机测试与构建，尚未烧录。历史版本的实机通过项目、发现的问题及剩余验收见 [烧录与连接测试](../records/connection-test-20261001.md)。
 
 ## 当前实现：连接与运行
 
@@ -11,9 +11,9 @@
 | 项目 | 当前代码行为 | 限制 |
 |---|---|---|
 | 网络拓扑 | LCD 建立 SoftAP，相机作为 Wi-Fi 客户端加入 | 不是 LCD 加入相机热点 |
-| 热点配置 | 默认值在 `main/wifi_config.h`，应用记录保存至 NVS `wifi_ap/cfg`；串口与手柄热点页已接入 | 默认 easycamctrl / 00000000 / 信道 6；网页入口未实现，实机边界见 [Wi-Fi 设计](wifi-ap-design.md) |
-| 相机地址 | `wifi_ap_get_clients` 从当前关联客户端的 DHCP 租约取得 IP | 只探测热点客户端，不扫描整个子网 |
-| 相机选择 | 未配对时要求唯一可达 TCP 15740 候选；已配对仅探测已保存 MAC | 多候选时提示只连接一台；更换相机先停止，再用 `u` 清除绑定 |
+| 热点配置 | 默认值在 `common/network_config.h`，应用记录保存至NVS wifi_ap/cfg；正常UART/手柄仅查询，Web独占维护保存 | 默认 easycamctrl / 00000000 / 信道 6；启动页Web已接，无认证/保存成功重启；实机边界见 [Wi-Fi 设计](wifi-ap-design.md) |
+| 相机地址 | Camera 经 Wi-Fi typed DHCP snapshot message 取得当前关联客户端 IP | 只探测热点客户端，不扫描整个子网 |
+| 相机选择 | 未配对时要求唯一可达 TCP 15740 候选；已配对仅探测已保存 MAC | 多候选时提示只连接一台；更换相机通过启动页Web全部重置；无UART u |
 | 服务端口 | TCP 15740，命令与事件各一条连接 | 事件连接使用命令初始化返回的 connection number |
 | 客户端身份 | `sony_remote/guid` 保存 16 字节 GUID；`peer` 保存相机 MAC[6]+GUID[16] | 只有完成会话和 Sony 初始化后才保存 peer；旧 GUID-only 记录保留身份，迁移时补绑定 |
 
@@ -45,18 +45,18 @@ sequenceDiagram
     end
 ```
 
-初始化顺序位于 `camera_controller.c:initialize_sony`，取景与配对诊断共用。命令连接串行执行事务；JPEG 解码任务只消费缓冲区，不操作相机 socket。每轮取帧之前排空事件，并处理属性轮询及待执行控制命令。
+初始化顺序由 `camera_backend_sony.c` 实现，取景与配对诊断共用。后端内嵌唯一 PTP client，经 Wi-Fi typed TCP channel 串行执行事务；UI endpoint 只消费 JPEG lease，不操作相机连接。每轮取帧之前排空事件，并处理属性轮询及待执行控制命令。
 
 ### 运行状态及退出
 
 1. 每次从 AP 关联列表和 DHCP 租约取得候选，单候选 TCP 探测超时 800 ms。没有目标或存在多候选时约每秒重查；候选服务无法连接时进入退避。
 2. 已绑定相机只接受保存的 MAC，InitCommandAck 中的相机 GUID 也必须匹配。未绑定时只选择唯一可达候选，完整 Sony 初始化成功后持久化绑定。
-3. 首次/旧记录迁移的 InitCommandAck 等待上限 120 秒，已配对为 10 秒；事件连接及正常事务为 5 秒。事务使用绝对期限，嵌套收包不能重置整笔超时；非阻塞 socket 的 select 每次最多等待 100 ms，期间检查停止标志。
+3. 首次/旧记录迁移的 InitCommandAck 等待上限 120 秒，已配对为 10 秒；事件连接及正常事务为 5 秒。事务使用绝对期限，嵌套收包不能重置整笔超时；Wi-Fi channel owner的非阻塞socket/select每次最多等待100ms，PTP只发送typed请求并检查取消/网络generation，不持有fd。
 4. 双通道建立、会话及 Sony 初始化完成后读取取景。`0x200F` 的完整拒绝响应不会断开：归还缓冲槽，等待 100 ms 后继续原会话；连续拒绝超过 50 次才重连。缺 EndData、错事务号、超长或网络错误必须断开。
-5. TCP/会话失败使用 1、2、4、8、16、30 秒退避。成功取得取景对象后重置失败计数。InitFail 或相机 GUID 不匹配暂停自动重试，提示用户确认相机后用 `j/p` 重试。
+5. TCP/会话失败使用 1、2、4、8、16、30 秒退避。UI 成功显示首帧后重置失败计数。InitFail 或相机 GUID 不匹配暂停自动重试，提示用户确认相机后用 `j/p` 重试。
 6. `s` 取消网络等待和 MF 请求，清空控制队列，排空解码任务并关闭连接，保留最后画面。中断数据阶段不发送 CloseSession；正常诊断结束才关闭会话。整机停止耗时还受解码及 LCD 同步影响，1 秒指标仍需实机验收。
 
-`j` 启动取景，`p` 完成 Sony 初始化并验证同身份重连，`s` 停止，`u` 在空闲时清除 `sony_remote` 身份。运行中 `u` 被拒绝，需先 `s` 并等日志 `Camera task finished`。NVS 读取/保存失败会记录错误，不使用 ESP_ERROR_CHECK 复位。GUID 与 peer 均做长度检查；损坏或孤立 peer 要求用户清除身份，不自动覆盖。
+j启动取景，p完成Sony初始化并验证同身份重连，s请求停止（UART OK仅接受）；Core维护生命周期等实际排空。旧u/forget入口已删，Web全部重置经共享identity存储primitive清除，不调用已停止Camera。NVS 读取/保存失败会记录错误，不使用 ESP_ERROR_CHECK 复位。GUID 与 peer 均做长度检查；损坏或孤立 peer 要求用户清除身份，不自动覆盖。
 
 ### 属性读取与相机控制
 
@@ -66,36 +66,61 @@ sequenceDiagram
 | 基础参数 | Mode、ISO、快门、光圈、EV、白平衡、对焦、测光、闪光 | 完整描述遍历替代特征搜索；整个数据集校验成功后才发布 |
 | 扩展参数 | 画幅、驱动、照片效果、DRO、对焦区域、无线闪光、WB 色温及 AB/GM 原始微调 | 完整数据集校验后发布；未知值保留十六进制，缺失值显示 `--` |
 | 曝光 Mode / Focus | Y / X 循环下一个枚举；setting_control / camera_menu 合并目标并等待回读 | 待确认时约 500 ms 刷新、10 秒超时；已有烧录记录，实际参数效果待验收 |
-| 手动对焦 | 确认非电动变焦镜头且 MF 时，L1 / R1 替代为 +1 / −1 | 运行时镜头类型 UNKNOWN，替代分支未启用；不能由变焦不可用推断镜头类型 |
+| 手动对焦 | 确认非电动变焦镜头且 MF 时，L1 / R1 替代为 +1 / −1 | 当前runtime使用用户已确认POWER_ZOOM，MF替代未启用；自动镜头识别未实现；不能由变焦不可用推断镜头类型 |
 | 半按 / 拍照 | RT 半压 S1、全压 S2；LT 半压无动作，全压仅请求录像目标；2 / 1 按下与释放写入、释放屏障已有代码及主机线格式测试 | S2 释放及真实拍照效果、连拍仍需实机验证，0xD2E6=1 含义未明 |
 | 录像 | LT 全压按已确认状态写 0xD2C8 的 2 / 1，等待 0xD21D 回读 | parser 支持 0 / 1 / 未知值；实际机型枚举与录像效果待验收，未知或等待时不猜测 |
 | 变焦、七项菜单 | 肩键变焦启停、枚举标量写入、快门 / 光圈无枚举时相对步进已接入 | 线格式及状态机有回归，实际效果与快门 / 光圈协议待验证；不把 OK 当作生效证据 |
 
-条件 MF 输入先等待肩键释放，再接受新按下；长按在 400 ms 后每 150 ms 请求一步，两肩键同时按下锁定到释放。每步发送前再次读取能力；切换设置页、断开手柄、停止或能力变化取消旧请求。socket 所有者串行发送命令，输入任务不直接写 socket。详细规则见 [手柄设计](gamepad-design.md)。
+条件 MF 输入先等待肩键释放，再接受新按下；长按在 400 ms 后每 150 ms 请求一步，两肩键同时按下锁定到释放。每步发送前再次读取能力；切换设置页、断开手柄、停止或能力变化取消旧请求。Camera sole protocol owner串行执行backend命令，Wi-Fi各lane持有socket；输入任务不直接写 socket。详细规则见 [手柄设计](gamepad-design.md)。
 
 WB “+2”已由用户识别为白平衡，但 AB/GM 编码到补偿数值的映射仍未确认；无线闪光值也暂显示原始编码。参数代码、类型和真实快照值统一见 [截图参数分析](../records/protocol-analysis-20261001.md#截图参数补充分析与显示实现)，布局见 [界面设计](ui-design.md#截图参数扩展)。
 
 ### 当前模块与后续工作
 
+旧 Sony/fd 实现仅在 tests/support/legacy 保留原回归；生产移动清单、边界及构建证据见 [Sony/PTP 收口记录](../records/module-sony-ptp-cleanup-20261006.md)。下方第 1–14 节中的旧目录及 fd 接口是历史设计，不代表当前生产路径。
+
 | 文件或目录 | 当前职责 |
 |---|---|
-| `main/camera_controller.c` | DHCP 候选选择、双通道握手、会话运行、控制队列、停止及退避 |
-| `main/camera_identity.c` | GUID/peer 的 NVS 读取、迁移、确认和清除 |
-| `main/camera_link.c` | 纯 C 候选筛选、唯一目标判定和退避策略 |
-| `main/camera_console.c` | 串口入口 |
-| `main/liveview_pipeline.c` | 取景对象提取、双槽缓冲与 JPEG 解码任务 |
-| `components/ptpip/` | TCP 收发、PTP/IP 事务、事件消费、DeviceInfo 数据集 |
-| `components/sony_camera/` | Sony 写命令、完整属性描述遍历、标量及 MF / Zoom / 录像能力解析 |
-| `main/setting_control.*`、`camera_menu.*`、`camera_actions.*` | 参数目标合并、七项菜单与高优先级动作 / 释放屏障 |
-| `components/board_7b/` | 参数存储、格式化及屏幕显示；尚未完全解耦相机领域模型 |
+| `components/app_camera/camera_runtime.c` | generic session/discovery/stream 编排、停止及退避 |
+| `components/common_runtime/camera_identity_store.c`、`common/camera_identity.h` | GUID/peer 的唯一 NVS 读取、迁移、确认和清除；正常 Camera 内部 RAM worker 执行，Core 独占停止正常写入后可执行维护清除；持久化格式不变 |
+| `components/app_camera/camera_link.c` | 纯 C 候选筛选、唯一目标判定和退避策略 |
+| `components/app_console/app_console_uart.c` | 串口入口 |
+| `components/app_camera/camera_frames.c`、`components/app_ui/ui_frames.c` | 双槽 JPEG lease、UI 解码及结果 metadata |
+| `components/ptpip/` | typed TCP 消息客户端、标准 wire engine、事务、事件及 DeviceInfo 数据集，无 lwIP |
+| `components/camera_backend_sony/` | private Sony 写命令、完整属性描述遍历、取景及能力解析、通用 backend ops |
+| `components/app_camera/setting_control.*`、`camera_menu.*`、`camera_actions.*` | 参数目标合并、七项菜单与高优先级动作 / 释放屏障 |
+| `components/app_ui/` | 参数状态、格式化、屏幕显示与 JPEG 渲染；相机状态/属性/JPEG 使用 typed Console message 发布 |
 
-下一步：实机验证动态地址、首次/重复配对、断网重连及停止时延；随后验证拍照释放、录像状态、WB 微调及无线闪光映射。通用状态模型、全类型领域模型与显示恢复仍是后续工作；已有完整描述遍历不等同于第 8.2 节的全部目标 API。
+下一步：实机验证动态地址、首次/重复配对、断网重连及停止时延；随后验证拍照释放、录像状态、WB 微调及无线闪光映射。通用backend/capabilities和display_surface恢复已接入；全类型厂商属性模型等其他功能仍待设计，不把已有整数描述遍历当历史第8.2节所有目标API。
 
 ### 验证范围
 
-当前统一 CTest 31 项，覆盖连接 / 属性 / 写入 / 控制状态、两端 I²C / DS4 / 灯阵与热点；完整清单见 [测试文档](../development/testing.md#当前注册测试)。2026-10-01 的九项是历史基线。连接回归覆盖阻塞/部分收发取消、整笔与嵌套事务期限、TCP 超时及错误、拒绝后同会话成功取帧、缺 EndData、错事务号、ProbeRequest、属性变化事件、GUID-only 迁移、身份不匹配、NVS 保存失败和坏记录。3210 字节真实属性快照及全部截断点也已验证。固件已编译、烧录并完成连接实测，见烧录与连接测试记录；主机网络和 NVS 使用模拟接口，实机验收范围以记录为准。
+当前255项CTest保留原54基线。旧fd/session/transport fixtures仅tests/support/legacy，不编入生产；PTP与Sony实际契约由同fake Console/channel fixture分别构建，连接/vendor/standard/CloseSession递增同一transaction序列，取消/网络变化和failed disconnect保留对象由测试断言。真实producer用fake generic backend覆盖发现/重试/动作/属性/frame/停止，不链接Sony/PTP；标准纯codec/属性快照另有旧基线。历史2026-10-01烧录结论仅当时固件，当前完整迁移版未烧录。具体范围见 [测试文档](../development/testing.md)。
 
-以下第 1–14 节是后续分层设计，保留目标接口、迁移步骤及待验证问题。
+### 当前对象、依赖与资源所有权
+
+```mermaid
+flowchart LR
+    Core[app_core lifecycle] --> Camera[app_camera]
+    Camera --> Session[camera_session]
+    Session --> Backend[generic camera_backend ops]
+    Binding[Camera private factory binding] --> Sony[sony_backend_t]
+    Backend --> Sony
+    Sony --> PTP[embedded ptpip_client_t]
+    PTP -->|typed channel message| Console[app_console]
+    Console --> Bridge[app_wifi_messages two lane owners]
+    Bridge --> Wifi[app_wifi / wifi_esp32 sockets]
+    Camera -->|readonly JPEG/frame metadata| Console
+    Console --> UI[app_ui endpoint decode/surface]
+```
+
+Sony private struct仅一份ptpip_client_t；channels两个token/generation、session、next_transaction、绝对deadline及nested parent stack、cancel/network atomics都在该实例，没有第二ptp_session_t/transport_t。Camera session保存generic backend指针/factory/generation/state，不复制vendor基础状态。各Wi-Fi lane独占真实channel/socket，Camera sole producer只拥有协议请求顺序与JPEG资源，不能把“相机唯一socket owner”字面理解成Camera持有fd。
+
+ptpip_client_transfer持有caller payload lease直到最后引用归还，request timeout/cancel不能提前释放buffer；close失败保留token用于cleanup retry。Composite scope一次建立绝对deadline，nested wire transaction不能延长期限；cleanup有单独scope，可在cancel/networkchanged后关闭token。Sony断连/销毁拒绝仍有channel/session资源的对象，Camera close_owned失败保留并重试，不强制free。Core不创建或保存backend/PTP对象，只Camera private binding创建Sony factory。
+
+生产ptpip的唯一编译源为client/protocol/wire/dataset；Sony为backend/props/liveview/control_encoder/client_controls。private Sony头只供backend及Camera binding，Core public仅start，Camera public仅Core生命周期/版本。实际构建依赖与直接库符号边见 [模块图](module-dependency-graph.md)，资源退出/lease约束见 [资源表](module-resource-ownership.md)。运行时ops间接调用边需结合具体factory与callsite源码，nm不能独自证明。
+
+以下第1–14节保留旧草案及协议依据。旧fd、独立sony_camera、camera_transport/device、ui_presenter/public camera_model结构不再作为本次实现目标；实际当前契约以上节和components头文件为准。日期证据及未实现功能仍按原范围保留。
 
 ## 1. 现状与问题（重构前）
 
@@ -435,7 +460,7 @@ bool ptpip_decode_start_data(const uint8_t *packet, size_t size, uint32_t *trans
 
 ### 设计要点
 
-- **数据负载不经过本层**：Data/EndData 只解码 12 字节头，负载由会话层直接 `recv_all` 进调用方缓冲（例如 1MiB 取景槽），避免多拷贝一次 100KB 以上的数据。
+- **数据负载不经过本层**：Data/EndData 只解码 12 字节头，负载由会话层直接 `recv_all` 进调用方缓冲（例如开机预分配的 512KiB 取景槽），避免多拷贝一次 100KB 以上的数据。
 - **分包、粘包**：TCP 边界和报文边界无关。会话层总是先读 8 字节头，再按长度读剩余部分，所以无论分包还是粘包都能正确处理。`ptpip_packet` 的单元测试负责覆盖头部长度的边界值。
 - **名称编码**：只把 ASCII 写成 UTF-16LE；解码时非 ASCII 字符替换为 `?`，与现有 `ptp_string` 行为一致。
 
@@ -1068,10 +1093,10 @@ static inline display_status_t display_recover(display_t *d)
 typedef struct {
     uint32_t pclk_hz;              /* 默认 18MHz，已实测稳定 */
     uint8_t  framebuffers;         /* 2 或 3；见 LCD 性能分析 */
-    uint16_t bounce_lines;         /* 默认 30 */
+    uint16_t bounce_lines;         /* 当前 10 */
 } board_7b_config_t;
 
-#define BOARD_7B_CONFIG_DEFAULT() { .pclk_hz = 18000000, .framebuffers = 2, .bounce_lines = 30 }
+#define BOARD_7B_CONFIG_DEFAULT() { .pclk_hz = 18000000, .framebuffers = 2, .bounce_lines = 10 }
 
 typedef struct {
     display_t *display;

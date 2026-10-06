@@ -1,5 +1,5 @@
 #include "liveview_pipeline.h"
-#include "board_7b.h"
+#include "app_ui.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,9 +21,9 @@ BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t timeout)
 BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t timeout)
 { assert(queue == &returned && timeout == portMAX_DELAY); assert(*(const int *)item >= 0 && !done); ++returned; return pdTRUE; }
 BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) { assert(sem == &done && !done); ++done; return pdTRUE; }
-esp_err_t board_7b_show_jpeg(const uint8_t *jpeg, size_t length)
+esp_err_t app_ui_show_jpeg(const uint8_t *jpeg, size_t length)
 { assert(jpeg == valid + 4 && length == sizeof(valid) - 4 && !done); return display_results[shown++]; }
-esp_err_t board_7b_recover_display(void) { ++recoveries; assert(!done); return recovery_result; }
+esp_err_t app_ui_recover_display(void) { ++recoveries; assert(!done); return recovery_result; }
 
 static bool run(bool malformed_first, unsigned count)
 {
