@@ -1,5 +1,10 @@
 # 当前模块依赖与运行关系
 
+[English](../en/design/module-dependency-graph.md) · **简体中文** · [日本語](../ja/design/module-dependency-graph.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 采集日期：2026-10-06。本图来自当前 LCD Default Debug 的实际构建，而不是计划目录。`tools/check_component_graph.py` 读取 IDF project_description.json、compile_commands.json 与顶层 CMake 生成的 module-http-links.txt。直接符号引用由 tools/check_module_symbols.py 检查实际 component archives，并与声明边匹配；已补间接 ops/callback [源码绑定核对](../records/module-indirect-callbacks-20261006.md)；符号门禁自身不证明动态函数指针目标。机器可读的完整显式依赖（包括 SDK/第三方叶节点）见本地 build/module-sony-control-merge-graph-{default,stable,release}.json；每次 LCD CI 构建都会重新检查。
 
 ## 编译期关系

@@ -1,5 +1,7 @@
 # Sony PTP/IP 相机连接与分层设计
 
+[English](../en/design/sony-ptpip-design.md) · **简体中文** · [日本語](../ja/design/sony-ptpip-design.md)
+
 本文集中说明相机连接的当前实现、已确认协议及后续分层设计。对应 [相机连接需求](../request/sony-ptpip-request.md)，操作步骤见 [相机连接手册](../user-guide/camera.md)。相机生产模块核对日期：2026-10-06；显示已迁入 app_ui，见 [拆分进度](../development/module-split-status.md)。第1–14节为重构前问题、协议观测和旧接口草案；旧socket/fd/Sony目录方案已由最终main拆分计划替代，不是待实施的结构。
 
 阅读时区分三个层次：本节“当前实现”按代码核对；协议观测以 [历史记录](../records/protocol-analysis.md) 和 [2026-10-01 抓包分析](../records/protocol-analysis-20261001.md) 为依据；第1–14节保留历史协议依据及已被替代的草案；FOCUS_POINT/放大等未实现功能与结构迁移分开，不要求重新建立旧fd adapter。2026-10-01 版本的连接恢复、MF 控制及扩展参数读取有历史烧录记录；2026-10-06 模块迁移仅完成主机测试与构建，尚未烧录。历史版本的实机通过项目、发现的问题及剩余验收见 [烧录与连接测试](../records/connection-test-20261001.md)。

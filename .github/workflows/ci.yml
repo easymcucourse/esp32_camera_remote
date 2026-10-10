@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check documentation links
         run: python3 tools/check_doc_links.py
+      - name: Check documentation language coverage
+        run: python3 tools/check_doc_locales.py
       - name: Check display module boundaries
         run: python3 tools/check_module_boundaries.py
       - name: Install host JSON parser dependency

@@ -1,5 +1,7 @@
 # UART 调试控制台设计
 
+[English](../en/design/uart-debug-design.md) · **简体中文** · [日本語](../ja/design/uart-debug-design.md)
+
 本文按当前源码描述LCD消息gateway与ATOM独立串口；命令用法集中于 [串口手册](../user-guide/serial.md)。原 [UART需求](../request/uart-debug-request.md) 保留行输入、请求号、脚本与调试能力，配置保存/维护入口按最终 [拆分计划](../../main-module-split-plan.md) 替代。
 
 ## 1. 模块与依赖
@@ -23,7 +25,7 @@ Core启动gateway前注册UART endpoint8 control/1 bulk与必要订阅，正常�
 | help/version/status/log | 保留生产命令；status并行收集typed快照，缺任一快照输出ERR，不打印零值OK |
 | j/s/S/p | Camera start/stop/diagnostic或UI菜单message；s的OK仅请求接受，Core维护stop等待physical drain |
 | wifi show [password] | 只读配置与客户端查询，password显式输出明文；无set/newpass/display保存 |
-| ui info / ui pad | 查询本次启动加载偏好；参数修改及触摸板循环保存已删，改由Web重启生效 |
+| ui info / ui pad | 查询本次启动加载偏好；参数修改及触摸板循环动作已删（Input服务忽略该action），改由Web重启生效 |
 | i2c log/stats | 查询/设置物理provider诊断，仅message，不操作device |
 | Debug SIM | raw typed命令/readonly sequence lease交独立SIM provider，4jobs/8completion；经统一Input report API |
 | Debug display fault/bench | typed UI请求；benchmark在UI复用真实JPEG renderer，经Camera消息预约停止/恢复，gateway不取得画布 |

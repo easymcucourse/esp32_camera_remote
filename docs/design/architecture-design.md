@@ -1,6 +1,8 @@
 # 当前系统架构
 
-本文按 2026-10-06 工作区源码描述模块、任务、协议与持久化。代码接入不代表实机验收通过，验证证据及剩余需求见 [实施状态](../development/implementation-status.md)。后续目标接口见 [Sony PTP/IP 分层设计](sony-ptpip-design.md)。
+[English](../en/design/architecture-design.md) · **简体中文** · [日本語](../ja/design/architecture-design.md)
+
+本文按2026-10-10源码描述架构，保留2026-10-06拆分后的owner边界，增加ATOM本地RS 3 Mini。软件实现与硬件验证见 [当前状态](../development/current-status.md)；后续目标接口见 [Sony PTP/IP设计](sony-ptpip-design.md)。
 
 当前实际编译依赖（含 post-project HTTP bind 边）和运行关系见 [模块关系图](module-dependency-graph.md)。任务、队列、缓冲和停止约束的逐个 owner 核对见 [资源所有权表](module-resource-ownership.md)。
 
@@ -9,6 +11,7 @@
 ```mermaid
 flowchart LR
     DS4["DualShock 4"] -- "Classic BT HID" --> ATOM["ATOM Matrix · ESP32"]
+    ATOM -- "BLE DUML · 本地运动/回中" --> GIMBAL["DJI RS 3 Mini"]
     ATOM -- "I²C 100 kHz · v2 · 0x42" --> LCD["LCD-7B · ESP32-S3"]
     CAM["Sony ZV-E10"] -- "Wi-Fi STA" --> LCD
     LCD -- "PTP/IP TCP 15740 · 命令与事件双通道" --> CAM
@@ -47,6 +50,8 @@ LCD 工程位于根目录，ATOM 独立工程位于 `m5_atom_matrix/`。LCD 不�
 | `app_main.c` | 板载按键非阻塞去抖（30 ms）、累计次数与 DS4 日志 |
 | `ds4_host.*`、`ds4_report.*` | 扫描 / 连接 / 保存手柄地址、线程安全快照、纯 C HID 报告解析 |
 | `ds4_events.*` | 128 项按键变化缓存，清除本地 L3、去重、事件 ID 确认及溢出 gap |
+| `ble_clients.*`、`ble_gamepad.*` | 共用BLE回调与扫描owner，BLE HID/标准电量/限定Ultimate 2报告 |
+| `gimbal_link.*`、`gimbal_control.*`、`gimbal_proto_rs3.*`、`gimbal_tx.*` | 独立云台BLE生命周期/NVS、真实DS4控制、DUML重组/严格遥测、写入和停止保留槽；不经过LCD |
 | `atom_i2c.*`、`atom_slave_tx.*` | 新版 I²C 从机 ISR 收包、独立解析任务；ESP-IDF 5.5.1 专用软件缓冲 / FIFO 响应替换 |
 | `matrix_status.*`、`matrix_model.*` | 独立 RMT 渲染、纯 C 启动 / 连接 / 故障状态模型、异步 HID 超时与 LED 恢复 |
 

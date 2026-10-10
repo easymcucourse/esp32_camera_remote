@@ -1,5 +1,10 @@
 # 当前 LCD 资源归属与停止约束
 
+[English](../en/design/module-resource-ownership.md) · **简体中文** · [日本語](../ja/design/module-resource-ownership.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 采集日期：2026-10-06，按当前源码而非旧任务表核对。数值为代码配置，不能代替实机栈水位、调度、Flash/cache-off 或 SMP 时限证明。正常维护切换只允许重启退出；超时保留活动 owner，不强删任务。
 
 ## 任务
@@ -25,7 +30,7 @@
 | Wi-Fi config | 未绑定 / 2 / 4096 | wifi_esp32/wifi_config_jobs.c | 正常关闭后维护重新启动；token/current snapshot/result history保留 |
 | Maintenance HTTP | SDK默认未绑定 / 3 / 6144，内部 | app_maintenance/maintenance_web.c、SDK HTTPD_DEFAULT_CONFIG | 3 sockets、15 routes、recv/send各10s；关Web gate→SDK queued session-close→httpd_stop同步join，无项目层有界停止保证；失败保留closed server |
 
-main 初始化栈配置32768，初始化调用返回由SDK回收；Core只创建一个health。基础准备/trigger/normal/health顺序见[实际关系图](module-dependency-graph.md)。
+2026-10-06 main初始化栈配置32768；2026-10-10 defaults已调整为24576，以上其余任务值需按实际sdkconfig核对。main初始化，初始化调用返回由SDK回收；Core只创建一个health。基础准备/trigger/normal/health顺序见[实际关系图](module-dependency-graph.md)。
 
 ## 队列、缓冲和持久对象
 

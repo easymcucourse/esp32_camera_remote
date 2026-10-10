@@ -1,5 +1,7 @@
 # 设置菜单控制
 
+[English](../en/design/camera-menu-design.md) · **简体中文** · [日本語](../ja/design/camera-menu-design.md)
+
 `camera_menu` 为相机 socket 所有者使用的纯 C 模块，管理 Shutter、F-Number、ISO、EV、WB、Focus、Metering 七项主参数和九项扩展参数。方向键事件由 `gamepad_input` 产生，Input owner先经typed UI菜单request取得route/property，再经Camera message把步数交给相机owner；各项分别累加，移动光标不会把旧输入改投新参数。
 
 ## 输入与显示

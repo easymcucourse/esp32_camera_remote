@@ -1,14 +1,16 @@
 # 测试与持续集成设计
 
+[English](../en/development/testing.md) · **简体中文** · [日本語](../ja/development/testing.md)
+
 本文汇总项目的测试分层、现有测试、计划新增的测试、实机与故障注入测试、长时间稳定性测试以及 CI 方案。各模块的具体测试用例写在对应设计文档中，本文只做汇总和约定。
 
-> 当前263项CTest通过（2026-10-06，module-wifi-backend-contract批次），原54保留；真实注册以tests/host/CMakeLists.txt和ctest清单为准。CI已接入但远端Actions尚未执行。以下日期段落只代表当时实现/构建/硬件状态。
+> 2026-10-10代码基线267/267 CTest、LCD/ATOM Debug/Release四个新构建通过，未烧录。当前覆盖见 [当前状态](current-status.md)。原54保留；下面旧批次/legacy测试及计划不代表当前功能缺失或硬件完成。CI已接入，远端Actions本轮未核验。
 
 ## 1. 测试分层
 
 | 层级 | 运行环境 | 目的 | 现状 |
 | --- | --- | --- | --- |
-| 主机单元测试 | PC，gcc / clang、Python 3 | 解析、编码、状态机、脚本工具 | 当前263项（原54保留；最新记录见module-wifi-backend-contract） |
+| 主机单元测试 | PC，gcc / clang、Python 3 | 解析、编码、状态机、脚本工具 | 当前267项（原54保留；2026-10-10代码基线） |
 | 主机工具验证 | PC | 字体渲染、界面截图、抓包样本解析 | `font_preview_host` |
 | 编译检查 | CI，ESP-IDF 5.5.1 | 两个工程开发 / 关闭模拟构建 | 四项矩阵已配置，远端待验证 |
 | 实机功能测试 | 开发板 + 相机 + 手柄 | 按需求文档的验收测试逐项确认 | 手工 |
@@ -64,9 +66,11 @@
 | Core/maintenance | mode/boot barrier/order/failure cleanup/stop、独立Web+真实cJSON/OTA/store | HTTP/NVS fake不证明网络隔离/Flash/cache-off；SDK HTTP同步stop无严格项目join预算 |
 | 构建/边界 | public/private扫描、真实component graph、静态库直接symbol edges、Release禁符号 | callback/ops间接路径须源码核对，remote CI及硬件未跑 |
 
-最新host261全回归见 [帧总线集成](../records/module-frame-bus-20261006.md)；[Sony控制层合并](../records/module-sony-control-merge-20261006.md) 为260全回归及三LCD构建；ATOM两配置见 [五配置核对](../records/module-api-build-audit-20261006.md)；各批次源/命令和范围在 [记录目录](../records/README.md)。不使用主机绿灯代替硬件验收，也不将源码注释当通过证据。
+历史host261全回归见 [帧总线集成](../records/module-frame-bus-20261006.md)；[Sony控制层合并](../records/module-sony-control-merge-20261006.md) 为260全回归及三LCD构建；ATOM两配置见 [五配置核对](../records/module-api-build-audit-20261006.md)；各批次源/命令和范围在 [记录目录](../records/README.md)。不使用主机绿灯代替硬件验收，也不将源码注释当通过证据。
 
 ### 后续测试计划
+
+下表为历史规划。当前gimbal测试已在 `tests/host/test_gimbal.c`，共享BLE在 `test_ble_clients.c`；不再等待 m5_atom_matrix/tests 下新增同名测试。PIN/可逆维护只保留legacy，不恢复为当前功能。
 
 已存在的 `ptp_session`、`atom_protocol`、`gamepad_input`、`wifi_config` 不再列为待新增；其故障注入及硬件覆盖仍需扩展。
 
@@ -118,7 +122,7 @@ PC 端模拟相机计划作为 `tools/` 下的新脚本，读取导出的样本�
 
 ## 5. 稳定性测试
 
-连续运行不少于 30 分钟，期间每分钟操作一次手柄，用 `tools/serial_log.py` 同时记录 LCD 和 ATOM 日志。记录指标：
+以下旧暂定性能指标被 [2026-10-07取景计划](../design/liveview-memory-fps-plan.md)更强的全屏/read门禁取代；30min稳定性仍独立验收。连续运行不少于 30 分钟，期间每分钟操作一次手柄，用 `tools/serial_log.py` 同时记录 LCD 和 ATOM 日志。记录指标：
 
 | 指标 | 来源 | 通过标准（暂定） |
 | --- | --- | --- |
@@ -129,7 +133,7 @@ PC 端模拟相机计划作为 `tools/` 下的新脚本，读取导出的样本�
 | 解码任务栈余量 | `stack_free=` 日志 | ≥ 4KiB |
 | I²C 事务失败率 | `atom_link` 日志 | ≤ 0.1% |
 
-日志统计脚本计划加入 `tools/`，输入日志文件，输出上表。
+取景统计已由 `tools/analyze_liveview.py` 提供；只计算窗口/标本，不能自动宣称实机性能或稳定性合格。
 
 ## 6. CI
 

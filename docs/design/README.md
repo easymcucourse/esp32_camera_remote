@@ -1,5 +1,7 @@
 # 设计
 
+[English](../en/design/README.md) · **简体中文** · [日本語](../ja/design/README.md)
+
 描述模块划分、接口、协议格式和硬件参数。对应的验收标准在 [需求](../request/README.md)。测试约定在 [开发文档](../development/testing.md)。
 
 | 文档 | 内容 |

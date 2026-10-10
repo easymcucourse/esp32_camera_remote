@@ -1,5 +1,7 @@
 # 串口命令
 
+[English](../en/user-guide/serial.md) · **简体中文** · [日本語](../ja/user-guide/serial.md)
+
 LCD 和 ATOM 串口波特率均为 115200。输入命令后按 Enter（包括单字符命令）；最多 255 字节，支持双引号、单引号和反斜杠转义。用脚本发送并保存日志的方法见 [串口日志工具](../development/serial-log.md)。两端共用 `help`、`version`、`status`、`log <tag|*> <none|error|warn|info|debug|verbose>`；可在命令前加 `#123`，同步答复带相同请求号。LCD 保留下面的相机、热点命令；ATOM 的 `status` 提供 LCD 心跳、手柄、事件队列与灯阵状态。
 
 开发构建的 LCD 支持 `display fault off|once|persistent`：一次回调丢失验证扫描恢复，持续丢失验证三次恢复失败后的排空和重启。仅改变 RAM 状态；命令需 `CONFIG_REMOTE_DBG_SIM` 与底层 `CONFIG_APP_DEBUG_FAULT_INJECTION` 支持，生产构建关闭后不可用。

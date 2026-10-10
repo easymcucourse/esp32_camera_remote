@@ -1,8 +1,10 @@
 # Matrix LED 状态显示设计
 
+[English](../en/design/matrix-led-design.md) · **简体中文** · [日本語](../ja/design/matrix-led-design.md)
+
 本文是 [Matrix LED 状态显示需求](../request/matrix-led-request.md) 的实现设计，定义物理映射、颜色取值、状态模型、状态来源、渲染时序和模块接口。图案、闪烁节奏、异常优先级等显示规则以需求文档为准。
 
-LED 渲染器只接收状态；BLE扫描/配对/标准电量与Ultimate 2报告由 `ble_gamepad`/parser提供，归一化输入经ds4_host/pad_publish与I²C上报LCD。其他BLE手柄兼容性仍待验收。云台只有状态入口，未实现真实数据来源；电量、输入与视觉分别验收。
+LED渲染器只接收状态。ble_gamepad/parser提供BLE手柄连接/标准电量/限定Ultimate 2输入，gimbal_link/proto提供RS 3 Mini连接和经严格布局校验的电量；两者通过ble_clients共用BLE回调/扫描。输入、电量与灯阵视觉分别验收，不把解析成功当成全部实机兼容。
 
 工作区已接入纯 C `matrix_model` 和独立 `matrix_status` 任务，包括启动、连接、三种异常、异步 HID 初始化超时与 RMT 恢复。主机图案和计时测试通过；物理四角映射、恢复故障注入及稳定性仍待实机验收。
 
@@ -267,7 +269,7 @@ atom_i2c_ready();
 
 普通状态前三行依次显示 DS 手柄、BLE 手柄、云台电量，第四行显示 LCD 等待动画，第五行保留连接灯。容量单位为百分比（255 为未知）；每颗 20%，向上取整，≤20% 红闪，已知 0% 闪一颗；断开 / 未知熄灭。启动和故障仍覆盖普通显示。
 
-`matrix_model` 保存三项容量；渲染任务读取 DS4 快照的 0..10 容量并换算百分比。BLE 入口为 `matrix_status_set_ble_gamepad_battery` / `matrix_status_set_ble_gimbal_battery`，断开清除缓存，离线提交不保留。协议仍未接入，不制造电量；纯 C 测试覆盖档位、零电量、未知、断线与故障覆盖，物理方向和视觉待实机验收。
+matrix_model保存三项容量；DS4的0..10换算百分比。BLE和云台通过各自battery setter更新，断开清缓存；RS 3 Mini还在15秒无有效电量时清为未知。未知不制造电量。主机测试覆盖档位/零值/未知/断线/故障，物理方向和视觉仍待实测。
 
 ## 开发调试覆盖
 

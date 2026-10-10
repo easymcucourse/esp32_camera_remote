@@ -1,5 +1,7 @@
 # 故障排查与恢复
 
+[English](../en/user-guide/troubleshooting.md) · **简体中文** · [日本語](../ja/user-guide/troubleshooting.md)
+
 本文按现象列出常见问题的排查方法，以及恢复出厂设置（清除配对身份）的操作。日志记录方法见 [串口日志工具](../development/serial-log.md)，日志关键字的含义见该文档“日志中的关键字”一节。
 
 > 当前配置与重置只在启动页维护 Web 操作；手柄热点编辑器和 UART factory/u 已删除。重置有源码与主机证据，新拆分固件的真实重置、重启与重新配对仍待验收，见 [拆分进度](../development/module-split-status.md)。

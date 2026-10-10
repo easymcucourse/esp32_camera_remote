@@ -1,5 +1,10 @@
 # 完整拆分计划验收清单
 
+[English](../en/development/module-split-checklist.md) · **简体中文** · [日本語](../ja/development/module-split-checklist.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 目标：完成完整计划并编译通过。以下从原计划逐项提取，不能以阶段性的绿色构建替代整体完成。采集：2026-10-05。
 
 状态：已证实 / 部分 / 待实施 / 待验证。证据必须与要求范围相同；实际进度见 [拆分进度](module-split-status.md)。

@@ -1,5 +1,10 @@
 # 当前正常应用消息契约
 
+[English](../en/design/module-message-contracts.md) · **简体中文** · [日本語](../ja/design/module-message-contracts.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 采集：2026-10-06。依据当前 `app_message.h`、`app_console.h` 和实际 endpoint/producer 源码。编号前缀统一为 APP_MESSAGE_；保留编号不代表功能仍支持。维护 Web 不使用此总线。
 
 ## 每个操作共用的规则

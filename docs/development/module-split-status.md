@@ -1,5 +1,10 @@
 # main 模块拆分进度
 
+[English](../en/development/module-split-status.md) · **简体中文** · [日本語](../ja/development/module-split-status.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 采集日期：2026-10-06。依据 [拆分计划](../../main-module-split-plan.md)；完整计划仍进行中。
 
 ## 当前源码状态

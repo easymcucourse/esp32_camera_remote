@@ -1,12 +1,14 @@
 # BLE 云台控制设计
 
+[English](../en/design/gimbal-design.md) · **简体中文** · [日本語](../ja/design/gimbal-design.md)
+
 本文是 [BLE 云台控制需求](../request/gimbal-request.md) 的实现设计，定义 ATOM 端云台模块的结构、控制算法、连接状态、本地配置和测试方法。
 
-> 草案：目标云台为大疆 RS 3 Mini，BLE 协议尚未确定。本设计把厂商协议隔离在一个适配层后面，其余部分与具体云台无关；协议确定后补充第 6 节。
+> 下文是完整设计目标，不是已完成功能清单。2026-10-10 增量实现及协议来源见 [RS 3 Mini 当前实现](rs3-mini-protocol.md)。生产代码为 gimbal_control / gimbal_link / gimbal_proto_rs3 / ble_clients；配置由 link 任务持有。软限位、任意零位与板载菜单尚未实现。
 
 ## 1. 前置改动
 
-当前 ATOM 已启用BTDM、BLE/GATTC，未释放BLE内存；BLE手柄客户端与Ultimate 2 parser已编译。云台协议/运动控制仍未实现，须验证DS4、BLE手柄与云台并发的内存/时序，见[双模限制](matrix-led-design.md#bluetooth-双模限制)。
+当前 ATOM 使用 BTDM、BLE/GATTC，未释放 BLE 内存；BLE 手柄客户端与 Ultimate 2 parser 已编译，RS 3 Mini 协议/运动控制已接入。仍须验证 DS4、BLE 手柄与云台并发的内存/时序，见[双模限制](matrix-led-design.md#bluetooth-双模限制)。旧 BR/EDR-only sdkconfig 需要重新配置，不能因 defaults 已更新便认为本机旧配置也已更新。
 
 ## 2. 模块结构
 
@@ -19,7 +21,7 @@ flowchart LR
     link -->|"link_state"| status["matrix_status<br/>I²C 上报"]
 ```
 
-| 规划模块（尚未实现） | 规划文件 | 职责 |
+| 原规划模块（下表含尚未实现的职责） | 文件或规划文件 | 职责 |
 | --- | --- | --- |
 | `gimbal_control` | `m5_atom_matrix/main/gimbal_control.c` | 纯 C：输入快照和时间，输出目标速度或停止；回中状态机；软限位 |
 | `gimbal_link` | `gimbal_link.c` | BLE GAP/GATT 客户端；连接状态；命令写入与失败计数 |
@@ -28,7 +30,7 @@ flowchart LR
 
 ## 3. 控制任务
 
-独立任务 `gimbal_ctrl`，优先级低于 I²C 处理、高于灯阵渲染，周期 50 ms：
+原规划任务如下；当前实际为 `gimbal_link` 的20ms worker，配置和GATT/TX由该owner持有，无独立gimbal_config实现。下方结构体、ops和50ms任务是原设计案，不是生产接口：
 
 1. 读取 `ds4_host_get_state()` 快照和最近一次输入时间。
 2. 调用 `gimbal_control_step()` 得到输出。
@@ -126,11 +128,11 @@ typedef struct {
 } gimbal_proto_ops_t;
 ```
 
-目标型号为大疆 RS 3 Mini。协议确认后新建 `gimbal_proto_rs3_mini.c` 实现以上函数，并在本节记录报文格式、抓包来源和已验证的固件版本。
+当前适配实际文件为 `m5_atom_matrix/main/gimbal_proto_rs3.c`，与此处原规划的 ops 结构不同；报文、来源、实现边界见 [RS 3 Mini 实现](rs3-mini-protocol.md)，验证见 `docs/records/rs3-mini-test-20261010.md`。
 
 ## 7. 测试
 
-计划新建主机单元测试（`m5_atom_matrix/tests/test_gimbal_control.c`，当前不存在）：
+当前主机测试为 `tests/host/test_gimbal.c` 和 `test_ble_clients.c`。下列仍包含完整设计目标的未来验收项，不能从已有测试通过推断软限位已实现：
 
 - 死区边界、曲线单调性、正负对称、满偏输出为 ±1。
 - 校准偏移后中心输出为 0。

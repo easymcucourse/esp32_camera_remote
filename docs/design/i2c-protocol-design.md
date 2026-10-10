@@ -1,12 +1,14 @@
 # LCD ↔ ATOM I²C 通信协议（版本 2）
 
-本文定义 Waveshare LCD-7B（主机）与 M5Stack ATOM Matrix（从机）之间的 I²C 协议版本 2，当前实现见 [ATOM 子项目说明](../../m5_atom_matrix/README.md#lcd-主从通信)，协议 v2 已替代旧版 v1。两端 v2 已接入、编译并烧录，主机回归通过，链路稳定性尚待验收；两端固件必须同时升级，版本 2 与版本 1 不兼容。ATOM 已迁移新版从机 v2 驱动，ISR 复制收包到队列，核心 0 的独立任务解析；每次响应使用项目内的 ESP-IDF 5.5.1 专用适配层替换软件缓冲与 FIFO。云台不在本轮范围。
+[English](../en/design/i2c-protocol-design.md) · **简体中文** · [日本語](../ja/design/i2c-protocol-design.md)
+
+本文定义LCD-7B主机与ATOM Matrix从机的I²C v2协议，见 [ATOM说明](../../m5_atom_matrix/README.md#lcd-主从通信)。v2与v1不兼容，升级需更新两端；当前CRC8/HELLO/POLL/boot_id/gap已接入并有烧录/握手记录，长期稳定性仍待验。ATOM新版从机ISR复制收包，核心0任务使用ESP-IDF5.5.1专用适配层替换响应缓冲/FIFO。RS 3 Mini控制独立运行于ATOM，I²C只上报状态和故障，不传云台运动命令。
 
 ## 设计目标
 
-下文云台与对焦框的职责是预留设计：当前云台状态为 0，左摇杆不传输、L3 已过滤，但 ATOM 没有云台运动控制；LCD 已接收右摇杆，尚未实现对焦框操作。
+2026-10-10 云台接入 ATOM 本地控制：`POLL[5]` 发布真实链路状态，HELLO feature bit2 声明支持，故障 bit3 发布控制故障。左摇杆仍不传输、L3 仍过滤；LCD 固件不用参与运动。实现与验证边界见 [RS 3 Mini 协议](rs3-mini-protocol.md)。LCD 已接收右摇杆，对焦框操作仍未实现。
 
-- **云台在 ATOM 内部闭环**：左摇杆和 L3 由 ATOM 直接转换为云台控制命令，不上报 LCD，LCD 也不下发云台命令。LCD 断开、重启或相机通信阻塞都不影响云台操作。
+- **云台在 ATOM 本地控制（当前无可信角度闭环）**：左摇杆和 L3 由 ATOM 直接转换为云台控制命令，不上报 LCD，LCD 也不下发云台命令。LCD 断开、重启或相机通信阻塞都不影响云台操作。
 - **完整性校验**：每帧带 CRC8，从机可从错位中重新同步。
 - **一次往返完成一次轮询**：状态、手柄快照、一个缓存事件及上次事件确认合并到同一条命令。
 - **可检测重启与丢事件**：ATOM 每次启动生成随机 `boot_id`；事件缓存溢出由 ATOM 直接标记，LCD 不再靠事件 ID 推断。
@@ -27,7 +29,7 @@ flowchart LR
 | 左摇杆 LX / LY | ATOM：云台 Pan / Tilt | 否 |
 | L3 | ATOM：云台回中 | 否（实时位图和事件中恒为 0） |
 | 其余 17 个按键 | LCD：相机与界面操作 | 是 |
-| 右摇杆 RX / RY | LCD：手动对焦框 | 是 |
+| 右摇杆 RX / RY | LCD：保留对焦框输入（位置控制未实现） | 是 |
 | L2 / R2 模拟量 | LCD：S1 / S2、录像 | 是 |
 | 手柄电池 | LCD：状态显示 | 是 |
 | 云台连接状态 | ATOM 判断 | 仅连接状态，用于界面显示 |
@@ -268,7 +270,7 @@ stateDiagram-v2
 
 ### 云台本地控制
 
-云台控制只依赖 DS4 输入，与 I²C 链路无关：
+当前基本控制只依赖真实DS4，与I²C无关，见 [RS3实现](rs3-mini-protocol.md)。下列是完整设计目标；原生L3回中已实现，但任意零位、角度闭环、软限位和板载菜单尚未实现，不能按下表推断已完成：
 
 - 左摇杆 X 轴控制 Pan，Y 轴控制 Tilt；中心死区约 10%，速度采用二次方曲线。
 - L3 按下沿触发回中，以限速平滑转回零位；回中期间推动左摇杆立即取消。按下 L3 时左摇杆偏移量不计入。
@@ -300,7 +302,7 @@ stateDiagram-v2
 - [x] ATOM：I²C 接收拆为独立任务，实现重新同步、CRC 校验和 `HELLO` / `POLL`。
 - [x] ATOM：生成 `boot_id`；事件入队前清除 `local_mask` 并去重；实现 `gap_pending`。
 - [x] ATOM：RGB 命令已移除，接入 `matrix_status` 独立渲染与纯 C 状态模型；实机视觉 / 恢复验收另记。
-- [ ] ATOM：新增云台模块，消费左摇杆和 L3，处理断开和输入超时停止。
+- [x] ATOM：已接入云台模块，消费真实左摇杆和L3，处理停止门禁；基础实机已确认，精确时延及完整故障验收待办。
 - [x] LCD：`components/app_input_atom/atom_link.c` 的 OFFLINE / HELLO / ONLINE 状态机，按 `len` 定位 CRC，连续 3 次失败才判定断开；只通过provider API上报report，业务仲裁归app_input。
 - [x] LCD：处理 `boot_id` 变化和 `gap` 事件，不生成边沿。
 - [x] LCD：界面显示云台连接状态和“ATOM 固件版本不匹配”。

@@ -1,5 +1,9 @@
 # 全需求实施与验收状态
 
+[English](../en/development/implementation-status.md) · **简体中文** · [日本語](../ja/development/implementation-status.md)
+
+最新源码/验证汇总见 [2026-10-10当前状态](current-status.md)。以下日期批次作为历史保留；旧PIN、UNKNOWN镜头或云台未接入描述不代表当前行为。
+
 2026-10-06 结构拆分的当前实现与待办见 [拆分进度](module-split-status.md)和[逐项清单](module-split-checklist.md)。以下为 2026-10-04 及以前的实现/烧录/硬件历史：其中旧 PIN、正常热点编辑、触摸板偏好切换和维护菜单已被拆分计划取代，不能当作当前入口说明。当前源码仅在启动页通过无认证维护 Web 修改配置；历史硬件结论不能代替新架构实测。
 
 <a id="latest-20261004"></a>

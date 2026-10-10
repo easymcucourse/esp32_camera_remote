@@ -1,5 +1,10 @@
 # PTP/Sony全局函数使用清单
 
+[English](../en/development/module-camera-symbol-usage.md) · **简体中文** · [日本語](../ja/development/module-camera-symbol-usage.md)
+
+> 2026-10-10：下方为有日期的详细台账，旧路径/件数/未完成项按当时范围解释；最新源码与验证以 [当前状态](../development/current-status.md)为准。当前main启动栈24576字节，旧32768表已被取代；Host基线267、四个新构建通过，未烧录。
+
+
 采集2026-10-06，最新Sony exposure纯转发函数移入test-only后，依据当前Default ELF与两个真实component archives。39个生产global函数中37个存在ELF，2个只有fixture依据。旧47函数快照保留在build/module-camera-export-usage.json，合并批40函数机器快照build/module-sony-control-merge-export-usage.json保留历史；本次移出项与归属见build/module-sony-exposure-move.json和module-sony-exposure-symbols.json。static helper/常量源码核对已补，真实smoke仍待完成。
 
 | 符号 | 当前Default ELF | fixture来源 |

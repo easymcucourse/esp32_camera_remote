@@ -1,5 +1,7 @@
 # 需求
 
+[English](../en/request/README.md) · **简体中文** · [日本語](../ja/request/README.md)
+
 描述用户可见的行为和验收标准。同一主题的实现方式在 [设计](../design/README.md)。状态和阅读顺序见 [文档总览](../README.md)。
 
 | 文档 | 内容 |

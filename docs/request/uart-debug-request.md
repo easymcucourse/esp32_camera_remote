@@ -1,5 +1,7 @@
 # UART 调试需求
 
+[English](../en/request/uart-debug-request.md) · **简体中文** · [日本語](../ja/request/uart-debug-request.md)
+
 本文定义 LCD 和 ATOM 的 UART 调试控制台：通过串口输入命令查看状态、模拟 LCD ↔ ATOM 的 I²C 通信、模拟手柄动作和注入故障。目的是在没有手柄、没有 ATOM 或没有 LCD 的情况下，也能单独开发和测试每一端，并让测试可以用脚本重复执行。
 
 > 双端行输入、help / version / status / log、请求号与脚本回放已实现；LCD 保留旧相机命令及 wifi / factory，显示回调故障注入已实测。ATOM 手柄模拟 / 动作序列及真实 I²C 切页、模拟量、溢出保护已实测；双端 I²C 监视 / 分类统计已接入并实测；ATOM CRC / 丢响应 / 延时已实测；ATOM `i2c req` 已实现；Matrix 四角校准和故障图案已实现，LCD 本地模拟及输入 / 故障 / 物理心跳暂停恢复已实测。当前命令见 [串口手册](../user-guide/serial.md)，后续语法可调整，但须保持两端风格一致。

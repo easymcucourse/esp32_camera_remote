@@ -37,7 +37,9 @@ def anchors(path):
 
 
 def check(root):
-    files = [root / 'README.md', root / 'm5_atom_matrix/README.md', *sorted((root / 'docs').rglob('*.md'))]
+    files = sorted({root / 'README.md', root / 'm5_atom_matrix/README.md',
+                    *root.glob('README*.md'), *(root / 'm5_atom_matrix').glob('README*.md'),
+                    *(root / 'docs').rglob('*.md')})
     issues, checked, cache = [], 0, {}
     for path in files:
         if not path.is_file():

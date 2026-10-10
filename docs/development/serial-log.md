@@ -1,5 +1,7 @@
 # 串口日志工具
 
+[English](../en/development/serial-log.md) · **简体中文** · [日本語](../ja/development/serial-log.md)
+
 `tools/serial_log.py` 在限定时间内记录串口输出，可选择先复位设备或发送一条串口命令。用于实测记录、问题复现和长时间稳定性测试。
 
 ## 依赖
@@ -103,6 +105,8 @@ python tools/test_camera_connection.py --port COM8 --connect-wait 120 --steady 3
 | `Event overflow: dropped=` | ATOM `atom_i2c` | 事件缓存溢出；LCD 按 gap 取消旧输入 |
 
 ## 注意事项
+
+取景性能记录使用独立全屏 / 设置页日志，可用 `python tools/analyze_liveview.py build/liveview-full.log --expect-settings 0 --output build/liveview-full-summary.json` 统计加权 FPS、连续窗口、日志抽样 read/display/JPEG 分位数、堆低水位和异常行；设置页改用 `--expect-settings 1`。页面分项缺失或冲突时仍保留统计但返回失败，避免混合页面成为对比基线。首帧短窗口及复位/断流之间的间隔不会混入 FPS。`read` / `display` / `JPEG` 仅为约每五秒最后一帧样本，工具不会自动判定性能或稳定性验收。至少保留 615 秒日志以覆盖不少于 600 秒完整 FPS 窗口；环境、模式、版本、视觉确认仍需单独记录。
 
 - 同一时刻一个串口只能被一个程序打开；记录前关闭 `idf.py monitor` 等其他串口程序。
 - 日志文件统一放在 `build/`（不提交）；需要长期保留的证据放在 `captures/`，同样不提交。

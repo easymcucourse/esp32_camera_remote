@@ -1,5 +1,9 @@
 # 记录
 
+[English](../en/records/README.md) · **简体中文** · [日本語](../ja/records/README.md)
+
+最新代码/验证见 [当前状态](../development/current-status.md)。本次 [代码与三语核对](documentation-i18n-20261010.md)，被取代的 [维护要求](maintenance-requirements-superseded-20261010.md) 与 [改善审查](improvement-audit-superseded-20261010.md)保留为历史原稿。
+
 按时间保留的抓包分析和实机测试。文中的“当前状态”是当时的状态，最新行为以 [相机连接设计的当前实现](../design/sony-ptpip-design.md#当前实现连接与运行)、根目录 README 和 [系统架构](../design/architecture-design.md) 为准。
 
 | 文档 | 内容 |

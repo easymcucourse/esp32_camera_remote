@@ -1,5 +1,7 @@
 # Wi-Fi 热点设计
 
+[English](../en/design/wifi-ap-design.md) · **简体中文** · [日本語](../ja/design/wifi-ap-design.md)
+
 按2026-10-06当前源码描述网络对象、ESP32后端、正常消息桥和维护配置。原 [热点需求](../request/wifi-ap-request.md) 的数据格式/校验继续适用；修改入口、维护认证和重启规则以 [拆分计划](../../main-module-split-plan.md) 为准。旧UART/手柄编辑器及正常factory已删除，历史实机记录不能代替当前实现验收。
 
 ## 1. 设计约束

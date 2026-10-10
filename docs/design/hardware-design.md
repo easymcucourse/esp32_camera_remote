@@ -1,5 +1,7 @@
 # ESP32-S3-Touch-LCD-7B 硬件配置
 
+[English](../en/design/hardware-design.md) · **简体中文** · [日本語](../ja/design/hardware-design.md)
+
 目标为 Waveshare ESP32-S3-Touch-LCD-7B，当前不初始化触摸设备。参数对应 `components/board_7b/board_7b_backend.c`，不要套用 LCD-7 的 CH422G 驱动。
 
 | 信号 | GPIO / 配置 |

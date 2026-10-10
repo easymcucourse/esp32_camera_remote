@@ -1,102 +1,89 @@
-# M5Stack ATOM Matrix 子项目
+# M5Stack ATOM Matrix
 
-这是一个独立的 ESP-IDF 5.5.1 工程，目标芯片为经典 ESP32。ATOM 作为 LCD 主系统的 I²C 从机，地址为 `0x42`。灯阵由独立状态任务显示启动进度、LCD / 无线连接与异常；LCD 不下发颜色命令。板载按键只上报状态和累计按下次数，不再切换颜色。
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-普通状态前三行分别显示 DS 手柄、BLE 手柄、云台电量，最多五颗从左向右表示容量；≤20% 红闪，未连接或未知时熄灭。第五行保留连接灯，启动与故障图案仍优先覆盖。DS 使用实际报告，BLE 标准电量已接入；云台只有电量提交接口，真实协议尚未接入。布局细则见 [Matrix 显示需求](../docs/request/matrix-led-request.md#普通状态布局)。
+Independent ESP-IDF5.5.1 firmware for the classic ESP32 in ATOM Matrix. It is an I²C slave at 0x42, receives controllers and controls RS 3 Mini locally. A dedicated status task owns the LEDs; LCD sends no RGB commands. The front button reports state and press count, not color changes.
 
-## 编译与烧录
+## Build
 
-在已激活 ESP-IDF 环境的 PowerShell 中执行：
+From an exported IDF environment:
 
-```powershell
+```sh
 cd m5_atom_matrix
 idf.py set-target esp32
 idf.py build
 idf.py -p COM6 -b 115200 flash monitor
 ```
 
-把 `COM6` 替换为实际串口。本机 LCD 为 COM8，ATOM 为 COM6；ATOM 使用 115200 烧录已验证可用。串口监视器按 `Ctrl+]` 退出。
+Replace COM6 with the actual port;115200 was verified locally. Exit monitor withCtrl+]. Defaults enable Classic Bluetooth/Bluedroid/HID Host and BTDM/BLE/GATTC, disable SPP, and use the v2 I²C slave with IRAM-safe ISR. Existing BR/EDR-only sdkconfig needs explicit regeneration/configuration; defaults do not overwrite it. Keep capacity for the BLE HID/gimbal connections. Portable isolated builds are described in [build instructions](../docs/en/development/build-and-flash.md). This project is not for ESP32-S3/C3 and needs no Arduino dependency.
 
-## 板载资源
+## Board resources
 
-| 资源 | GPIO | 说明 |
+| Resource | GPIO | Notes |
 | --- | ---: | --- |
-| 5×5 RGB LED | 27 | 25 颗 WS2812，GRB 顺序 |
-| 正面按键 | 39 | 低电平按下，板上已有外部上拉 |
-| Grove I²C SDA | 26 | Port A 黄色线 |
-| Grove I²C SCL | 32 | Port A 白色线 |
+|5×5 WS2812|27|25 LEDs,GRB,IDF RMT|
+|Front button|39|Active low,external pull-up|
+|Grove SDA/SCL|26/32|Yellow/white|
 
-代码不依赖 Arduino 或外部组件，LED 由 ESP-IDF RMT 驱动。DualShock 4 使用 ESP-IDF 公共 Classic Bluetooth HID Host API。
+Normal rows1/2/3 show DS/BLE/gimbal battery, at most five LEDs from left to right. At≤20% they flash red; disconnected/unknown values are dark. Row5 shows connections; startup/fault patterns override normal state. Battery parsing and physical LED direction are separate checks.
 
-## DualShock 4（PS4）自动配对
+## DualShock 4
 
-1. ATOM 上电后自动搜索手柄。手柄断开 USB，按住 **SHARE + PS**，直到灯条快速闪烁，进入蓝牙配对模式。
-2. ATOM 自动发现 `Wireless Controller`、连接并完成蓝牙认证，无需电脑或手动填写 MAC。收到有效输入后串口显示 `DualShock 4 connected; input ready`。
-3. 固件把成功连接的手柄地址保存到 NVS，蓝牙栈保存绑定信息。下次 ATOM 上电或连接断开后，自动尝试上次的手柄；手柄关闭时需按 PS 唤醒。未连接时继续搜索，也可用 SHARE + PS 配对另一只手柄。
-4. 每次扫描约 10 秒，连接超时约 20 秒。连接失败后继续重试。配对多只手柄时，一次只让目标手柄进入配对模式。
+1. Disconnect controller USB, hold SHARE+PS until its bar flashes rapidly.
+2. ATOM discovers `Wireless Controller`, authenticates and waits for valid input. `DualShock 4 connected; input ready` establishes readiness; HID-open acceptance alone does not.
+3. Successful target identity persists in NVS and the stack stores bonding. Wake a saved DS4 with PS; ATOM reconnects and retries. Pair only one intended controller at a time.
 
-支持 Sony DS4 第一代（VID/PID `054C:05C4`）和第二代（`054C:09CC`），连接后检查 SDP 设备标识，排除其他同名设备。未声明这些标识的第三方手柄不在当前支持范围内。当前不实现震动、灯条控制或触摸坐标。
+Supported Sony VID/PID pairs are 054C:05C4 and 054C:09CC, checked through SDP. A third-party device with the same name is not automatically supported. Rumble, light-bar output and touch coordinates are absent. Scanning is about 10seconds and opening timeout about 20seconds.
 
-串口在按键变化时及每秒输出按键、左右摇杆、L2/R2 和电池原始值。摇杆范围 -128～127，中心约 0，扳机 0～255。电池值通常为 0～10，短输入报告不包含电池时为 255。断开后输入状态清零。
+Stick reports are-128..127, triggers0..255, battery0..10 or255unknown. Disconnect clears input. DEBUG fords4_host prints phase/report diagnostics; normal tags stayINFO. Initial report excerpts and ten-second statistics are diagnostics, not acceptance evidence. Raw device identities remain local.
 
-`ds4_host` 标签启用 DEBUG，其余标签保持 INFO。诊断日志包含扫描到的设备名称/CoD、连接来源、HID 阶段（connecting/connected/disconnected）、设备标识、认证结果、断开原因，以及输入报告 ID、长度、接收/拒绝累计数。每次连接的前 5 份输入报告输出前 16 字节，随后每 10 秒输出一次统计。`HID open status=0 phase=connecting` 仅表示请求已受理，`DualShock 4 connected; input ready` 才表示有效输入已到达。
+Bits0..17: Share,L3,R3,Options,Up,Right,Down,Left,L2,R2,L1,R1,Triangle,Circle,Cross,Square,PS,Touchpad click. LCD receives an edge-based event cache; localL3 is removed. Options toggles LIVE/SETTINGS once per press. Left-stick data is not carried to LCD.
 
-在项目根目录抓取两分钟日志（不复位设备）：
+Camera mapping isL1 Wide/R1 Tele,Triangle Mode,Square Focus,RT half/full S1/S2,LT full recording. Lens declaration is POWER_ZOOM, not auto-detection. [Controller details](../docs/en/user-guide/controller.md) distinguish implemented and physically verified actions.
 
-```powershell
-python tools/serial_log.py --port COM6 --seconds 120 --output captures/atom-ds4-debug.log
+## RS 3 Mini
+
+Activate through official Ronin, balance/unlock axes and disconnect the app. Without a saved target ATOM selects one name-matching Mini, verifies its control/notify channels and saves it when ready. Multiple candidates are not chosen. With a saved target only that address reconnects; `gimbal pair` replaces the gimbal target without changing DS4 pairing.
+
+Real Classic DS4 left stick controls Pan/Tilt;L3 requests native recenter. Center/releaseL3 after connect. LCD disconnection/source selection does not affect the local source; UART SIM prohibits physical motion.
+
+```text
+gimbal status
+gimbal speed pan 120
+gimbal speed tilt 240
+gimbal speed 120
+gimbal invert 1
+gimbal calibrate
+gimbal stop
+gimbal off
+gimbal on
+gimbal pair
 ```
 
-如需同时检查启动和已保存手柄重连，可加 `--reset`。手柄关闭时需要按 PS 唤醒；首次配对按 SHARE + PS。
+Speed20..400 is a protocol offset, not angular velocity. The shared speed command sets both axes; named axes are independent. Factory defaults120/120; user-confirmed local tuning120/240 persists. Calibration requires fresh centered real input with offsets within 32. on/off,pair,tuning/invert/calibration persist;stop does not. Queue acceptance is not execution.
 
-按键位图 bit 0～17 依次为 Share、L3、R3、Options、上、右、下、左、L2、R2、L1、R1、三角、圆圈、叉、方块、PS、触摸板按下。`ds4_host_get_state()` 返回线程安全快照。LCD 收到 Start（DS4 Options）从松开到按下的变化时，切换设置界面和预览界面；持续按住不重复切换，松开后可再次按下切换。串口 `S` 仍可切换同一界面模式。
+User confirmed basic stick/L3 and real gimbal power-cycle recovery. Custom recorded zero, soft limits and on-board settings are absent. Exact stopping/cancel/disconnect timing and full30-minute concurrency remain unverified; see [RS 3 Mini wire/limits](../docs/en/design/rs3-mini-protocol.md) and [current status](../docs/en/development/current-status.md).
 
-LCD 工作区新映射：Y（△）切下一曝光 Mode，X（□）切下一对焦模式，按相机可选枚举循环，按住不重复，目标合并并等待真实回读。L1/R1 控制 Tele / Wide，确认非电动变焦镜头且 MF 时改为近 / 远对焦；两键同按停止并锁定到松开。镜头类型识别尚未完成，运行时未知，不启用对焦替代。新映射已有烧录记录，相机动作仍待验收，详见 [手柄需求](../docs/request/gamepad-request.md)。
+<a id="lcd-主从通信"></a>
+## LCD I²C link
 
-目标为经典 ESP32（ATOM Matrix 的 ESP32-PICO），不适用于 ESP32-S3/C3。输入布局参考 [Bluepad32 DS4 parser](https://github.com/ricardoquesada/bluepad32/blob/main/src/components/bluepad32/parser/uni_hid_parser_ds4.c)。
+Connect LCD SDA8/SCL9/GND to ATOM26/32/GND. With separate USB power do not connect Grove5V; pull up to3.3V, never5V. Address0x42 avoids the LCD expander at 0x24.
 
-如已有旧 `sdkconfig`，在 `idf.py menuconfig` 中启用 Bluetooth、Bluedroid、Classic Bluetooth、HID、HID Host，选择 BR/EDR Only，关闭 SPP。首次生成配置自动采用 `sdkconfig.defaults`。
+v2 is incompatible withv1, requiring both boards on upgrade. HELLO checks version/features/boot_id; offline probing is every 1second, online POLL every 50ms with 15ms write/read gap. Failed attempts preserve sequence/ACK for retry; three consecutive failures go offline. Version mismatch retries every 5seconds.
 
-报告解析测试（在项目根目录、有主机 GCC 的环境运行）：
-
-```powershell
-gcc -std=c11 -Wall -Wextra -Werror -I common -I m5_atom_matrix/main m5_atom_matrix/main/ds4_report.c m5_atom_matrix/tests/test_ds4_report.c -o m5_atom_matrix/build/test_ds4_report.exe
-./m5_atom_matrix/build/test_ds4_report.exe
-```
-
-## LCD 主从通信
-
-LCD-7B GPIO8（SDA）连接 ATOM GPIO26，GPIO9（SCL）连接 ATOM GPIO32，并共地。两端分别用 USB 供电时只连接 SDA、SCL、GND，不连接 Grove 的 5V。总线由 LCD 以 100 kHz 驱动；上拉至 3.3V，不能上拉至 5V。ATOM 的 `0x42` 地址避开 LCD 的 `0x24` 扩展芯片。
-
-工作区已升级协议 v2，必须同时更新 LCD 与 ATOM；与旧版 v1 不兼容；两端已有 v2 烧录与握手记录。离线每秒探测，HELLO 校验协议、能力及 boot_id，在线 POLL 周期 50 ms，写后等待 15 ms。单次失败保持 seq / ack 重试，连续三次失败才离线；版本不匹配显示提示，每 5 秒重试。
-
-| 命令 | 请求 | 成功响应 | 内容 |
+| Command | Request | Successful response | Payload |
 | --- | --- | --- | --- |
-| HELLO `0x01` | 9 字节，param=0x0202 | 19 字节 | boot_id、固件版本、能力、缓存容量、local_mask |
-| POLL `0x10` | 9 字节，param=ack_id | 35 字节 | boot_id、设备状态、故障、电池、按键、最新输入、缓存事件 |
+|HELLO0x01|9bytes,param0x0202 plus selected input-mode byte|19bytes|boot_id,version,features,capacity,local_mask|
+|POLL0x10|9bytes,param=ack_id|35bytes|device status,faults,batteries,buttons,input,event|
 
-CRC-8/SMBUS 校验值 `123456789` → `0xF4`。错误响应按 len=0 的 7 字节定位 CRC。共用模块为 `common/atom_protocol.*`、`common/atom_client.*`，完整偏移见 [I²C v2 设计](../docs/design/i2c-protocol-design.md)。ATOM 独立任务支持垃圾字节搜索、CRC 校验及 20 ms 半帧超时；已采用新版从机 v2 驱动；ESP-IDF 5.5.1 专用适配层在核心 0 清理旧软件缓冲 / FIFO 并替换响应，SDK 升级须重审。
+CRC-8/SMBUS vector `123456789`→0xF4. Error replies have zero payload and 7bytes. Shared atom_protocol/atom_client implement framing. The slave parser resynchronizes garbage and drops partial frames after 20ms. The core0 reply adapter replaces software/FIFO buffers using IDF5.5.1-specific internals; review it on SDK upgrade.
 
-缓存容量 128，入队前清除本地 L3 并去重，左摇杆不出现在协议中。溢出返回 gap，确认后清故障；再次溢出不能误清。LCD 对 gap 只同步位图，ATOM 重启立即清旧输入并重新 HELLO，重连先丢弃旧缓存，不重放命令。RGB 命令已移除，独立 matrix_status 任务显示五阶段启动进度、固定连接灯及三种异常图案，纯 C 模型有主机验证；四角映射和视觉仍待验收。板载按键次数在 65535 后回绕。云台未启用，状态为 0。
+The 128-entry RAM event cache clears localL3 and deduplicates edges. Overflow setsgap, ACK clears the corresponding fault, later overflow must remain visible. Reconnect/reboot discards stale events and never replays old commands. Button count wraps after 65535. Gimbal states0/1/2/3 mean disabled/disconnected,searching,connecting,control-ready; fault bit3 is separate. [Complete offsets](../docs/en/design/i2c-protocol-design.md).
 
-主机回归与双端构建：
+## BLE HID and validation
 
-```powershell
-cmake --build build/host -j 4
-ctest --test-dir build/host --output-on-failure
-./tools/idf.ps1 build
-./tools/idf.ps1 build -ProjectDirectory ./m5_atom_matrix -Port COM6
-```
+ble_clients owns shared GAP/GATTC callbacks and scanning; Classic callbacks remain independent. BLE candidates match appearance/supported names, then must expose verified HID services. Unique candidates only. No-IO bonding, Battery Service0x180F/Level0x2A19 updates about every 10seconds, invalid/disconnected value255.
 
-已烧录，确认 v2 HELLO、新从机和 HID 初始化。首轮 DS4 高频输入下出现大量重试，提高回复任务 / ISR 优先级后 65 秒仍有一次 CRC 错误；IRAM 修正已烧录，单端复位恢复已观察，高频输入窗口尚待复现；单端重启、拔线、残留 FIFO 注入、15 ms 响应上限和 30 分钟稳定性仍待验收。
+Ultimate 2 input requires the observed113-byte descriptor and a unique notify characteristic. Its33-byte reports normalize through shared publication/I²C. DS4 has priority; missing BLE input releases after 1second. `ble map` prints the cached descriptor. Historical battery88% was observed; physical buttons/trigger directions,camera actions,reboot recovery and stability are still pending.
 
-2026-10-03：双端行控制台与 ATOM pad sim 已烧录；真实 I²C 上切页、摇杆 / 扳机、溢出保护及 50 次 100ms 点按通过。生产可关闭 CONFIG_REMOTE_DBG_SIM，独立构建已通过；当前设备运行开发版本。命令见 [串口手册](../docs/user-guide/serial.md)，证据与边界见 [模拟输入实测](../docs/records/pad-sim-test-20261003.md)。
-
-
-## BLE 手柄电量
-
-ATOM 使用 Classic + BLE 双模；`ble_gamepad` 独占 BLE GAP / GATTC 回调，经典 DS4 回调保持独立。扫描 gamepad / joystick 外观或 Xbox / Gamepad / 8BitDo Ultimate 2 名称；允许广播未携带 HID UUID，但 GATT 必须发现 HID 服务。单候选才连接，多候选或列表溢出等待下一轮。配对采用无输入输出的绑定，读取标准 Battery Service (`0x180F`) / Battery Level (`0x2A19`)，每十秒更新一次 Matrix 第二行，断开或非法值清除为未知（255）。
-
-Ultimate 2 已在本机读到 88%；实体按键 / 相机控制仍需验收，已新增限定描述的输入适配。`status` 显示连接状态与三行电量；开发日志 `log ble_gamepad debug` 可观察广播、报告描述和受限频率的输入字节，不记录在正式文档中的原始设备身份。旧 BR/EDR-only sdkconfig 必须备份后重新生成；CI 入口检查双模与 GATTC 开关。
-
-Ultimate 2 输入适配使用实机 113 字节 HID 描述严格匹配和唯一通知特征作为门禁。33 字节报告转换为共用快照 / 事件，再经 I²C v2 交给 LCD；DS4 优先，BLE 无输入一秒释放。`ble map` 输出缓存的描述用于诊断。实体字母键 / 扳机方向、相机操作、重启自动重连及长期稳定性仍需实机验证。
+Run the repository host suite usingcmake/ctest. [Dated records](../docs/en/records/README.md) preserve earlier I²C retry and simulator results; they do not prove current30-minute acceptance. One process owns each UART. Captures/builds/backups/sdkconfig/memory are ignored.

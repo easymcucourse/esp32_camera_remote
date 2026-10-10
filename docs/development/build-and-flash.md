@@ -1,5 +1,7 @@
 # 编译与烧录工具
 
+[English](../en/development/build-and-flash.md) · **简体中文** · [日本語](../ja/development/build-and-flash.md)
+
 两个固件工程使用 ESP-IDF 5.5.1。Windows 包装脚本为 `tools/idf.ps1`，主机回归统一由 `tests/host/CMakeLists.txt` 注册。
 
 ## 环境
@@ -39,6 +41,8 @@ python tools/ci_build.py lcd debug --profile stable
 ```
 
 包装脚本输出到 `build/stable`，CI 入口输出到 `build/ci-lcd-debug-stable`；后续 size / monitor / flash 使用相同 profile。完整 USB flash 仍会初始化 OTA 元数据，已有设备应遵循前述更新边界。已有缓存配置不被 defaults 自动覆盖，CI 检查兼容配置实际频率。ATOM 不接受 stable profile。
+
+分阶段性能测量可用 `python tools/ci_build.py lcd debug --build-tag liveview-stage1`，生成独立 `build/ci-lcd-debug-liveview-stage1`；Stable 同时加 `--profile stable`，Release 使用 `lcd release`。新 tag 首次构建从当前 defaults 生成 sdkconfig，旧 tag 重用时仍保留旧配置，必须核对实际值。每阶段使用新 tag 并保留原产物和测量日志，避免基线被后续配置覆盖。
 
 ## Windows 包装脚本
 
@@ -96,7 +100,7 @@ cmake --build build/host -j 4
 ctest --test-dir build/host --output-on-failure
 ```
 
-主机Web契约测试需cJSON：Linux可安装libcjson-dev；Windows示例直接编译上面SDK目录中未改动的cJSON.c/.h，请按实际SDK位置修改。其他环境选择已安装的CMake generator；同一个构建目录不混用 generator。统一CTest当前263项（原54保留），包括 JPEG 标记边界 / 损坏帧 / LCD 恢复、DS4 报告 / 事件、v2 协议、发送适配、灯阵模型、相机连接 / 属性 / 写入 / 菜单、输入状态机、维护 JSON / 热点配置 / 菜单及全部重置。测试清单及边界见 [测试文档](testing.md)。
+主机Web契约测试需cJSON：Linux可安装libcjson-dev；Windows可指定上面SDK目录中未改动的cJSON.c/.h。一个构建目录不混用generator。2026-10-10统一CTest267项通过（历史原54保留），新增云台控制/协议/写入门禁、BLE共享扫描与取景日志分析；详见 [测试文档](testing.md) 和 [当前状态](current-status.md)。
 
 合成输入在测试源码中；四份脱敏属性裁剪样本位于 [fixtures](../../tests/host/fixtures/README.md)，由属性提取工具生成，不包含原始网络包。主机回归不证明真实 NVS、射频、相机写入或界面视觉效果。
 

@@ -1,5 +1,7 @@
 # 手柄输入处理设计
 
+[English](../en/design/gamepad-design.md) · **简体中文** · [日本語](../ja/design/gamepad-design.md)
+
 本文是 [手柄控制方案](../request/gamepad-request.md) 在 LCD 端的实现设计：如何把 ATOM 上报的手柄快照和按键事件转换成相机命令和界面操作，并保证拍照、录像、变焦在任何异常下都能安全释放。ATOM 端的云台处理见 [BLE 云台控制设计](gimbal-design.md)，链路协议见 [I²C 通信协议](i2c-protocol-design.md)。
 
 当前输入动作规则保留原纯C状态机，结构按最终 [拆分计划](../../main-module-split-plan.md) 整理。历史烧录和镜头声明有日期范围，不能代表当前完整拆分固件已验收；当前测试证据见 [验收清单](../development/module-split-checklist.md)。

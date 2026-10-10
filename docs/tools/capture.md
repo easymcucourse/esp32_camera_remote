@@ -1,5 +1,7 @@
 # 抓包工具
 
+[English](../en/tools/capture.md) · **简体中文** · [日本語](../ja/tools/capture.md)
+
 本文说明抓包和离线分析脚本的用法。各轮实测数据见 [通信分析与实测记录](../records/protocol-analysis.md)。
 
 ## 依赖

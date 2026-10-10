@@ -1,5 +1,7 @@
 # 界面设计
 
+[English](../en/design/ui-design.md) · **简体中文** · [日本語](../ja/design/ui-design.md)
+
 本文是 [界面显示方案](../request/ui-request.md) 的实现设计，记录当前各画面的布局参数和绘制流程，并定义规划功能（信息显示档位、对焦框、对焦放大和统一提示）的界面状态和绘制规则。2026-10-06 当前已建立 app_ui / display_surface / board_7b 边界，实际进度见 [拆分进度](../development/module-split-status.md)。历史显示目标和 `ui_presenter` 的分工见 [Sony PTP/IP 客户端分层设计](sony-ptpip-design.md#11-显示抽象接口与-board_7b-实现) 第 11 节，本文不重复。
 
 > 第 1–3、7 节按当前 `app_ui/ui_renderer.c`、`ui_model.c` / `camera_menu` 核对当前实现；第 4–6、8 节保留后续目标，部分状态绘制已接入。代码接入与视觉验收分别记录，见 [实施状态](../development/implementation-status.md)。

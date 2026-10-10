@@ -1,5 +1,7 @@
 # 快速上手
 
+[English](../en/user-guide/quick-start.md) · **简体中文** · [日本語](../ja/user-guide/quick-start.md)
+
 需要 Waveshare ESP32-S3-Touch-LCD-7B、M5Stack ATOM Matrix、Sony ZV-E10 和 DualShock 4。LCD 工程目标为 ESP32-S3，ATOM 工程目标为经典 ESP32。两块板分别 USB 供电。
 
 完整编译说明、包装脚本和“改哪一端要烧哪一端”见 [编译与烧录](../development/build-and-flash.md)。
@@ -14,7 +16,7 @@ idf.py build
 idf.py -p COM8 flash monitor
 ```
 
-监视器按 `Ctrl+]` 退出。常规烧录会保留 NVS 里的相机配对身份；擦除整片 Flash 后需要重新配对。
+监视器按Ctrl+]退出。未擦除NVS时配对身份保留；完整USB flash会写分区/初始OTA数据，可能改变已部署设备的启动槽。已有LCD优先Web OTA，或先核对活动槽再应用更新；整片擦除会删除身份并需重配。
 
 ## 烧录 ATOM
 

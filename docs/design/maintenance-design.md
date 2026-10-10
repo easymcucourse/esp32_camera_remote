@@ -1,5 +1,7 @@
 # 维护页面设计
 
+[English](../en/design/maintenance-design.md) · **简体中文** · [日本語](../ja/design/maintenance-design.md)
+
 本文按2026-10-06当前源码描述独立维护 Web。根目录 [拆分计划](../../main-module-split-plan.md) 的启动页 trigger、无认证和不可逆独占要求取代旧 PIN/登录、串口/手柄入口与原地恢复正常模式设计。需求来源见 [维护需求](../request/maintenance-request.md)，其中旧认证条目须按新计划解释；历史实现证据仍保留在日期记录中。
 
 ## 1. 模式与所有权
