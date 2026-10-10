@@ -81,7 +81,7 @@ void matrix_model_frame(const matrix_model_t *m, uint32_t now, uint8_t out[25])
                 if (x < (unsigned)m->boot || (x == (unsigned)m->boot && blink)) out[y * 5 + x] = MATRIX_WHITE;
         return;
     }
-    if (m->faults & MATRIX_BLUETOOTH) {
+    if (m->faults & (MATRIX_BLUETOOTH | MATRIX_GIMBAL)) {
         const uint8_t rows[] = {0x0f, 0x11, 0x0f, 0x11, 0x0f};
         for (unsigned y = 0; y < 5; ++y) for (unsigned x = 0; x < 5; ++x)
             if (rows[y] & (1u << x)) out[y * 5 + x] = MATRIX_MAGENTA;

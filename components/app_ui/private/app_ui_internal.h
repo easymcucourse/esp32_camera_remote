@@ -20,7 +20,7 @@ void app_ui_refresh_wifi_info(void); /* Nonblocking notification to the render w
 void app_ui_set_atom_status(bool atom_online, bool controller_online);
 /* Battery is the input protocol's 0..10 level, or 255 unknown. */
 void app_ui_set_controller_battery(unsigned level, bool xbox);
-void app_ui_set_atom_protocol(bool mismatch, unsigned gimbal_link_state);
+void app_ui_set_atom_protocol(bool mismatch, unsigned gimbal_link_state, bool gimbal_fault);
 // Live-view status shown in the upper-right corner.
 void app_ui_set_wifi_rssi(int rssi);
 void app_ui_set_camera_info(const char *model, const char *firmware);

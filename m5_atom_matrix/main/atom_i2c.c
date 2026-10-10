@@ -1,4 +1,5 @@
 #include "atom_i2c.h"
+#include "gimbal_link.h"
 #include "atom_protocol.h"
 #include "i2c_debug.h"
 #include "atom_fault.h"
@@ -39,7 +40,8 @@ void atom_i2c_button(bool pressed, uint16_t count)
 bool atom_i2c_online(void)
 { return atomic_load(&heartbeat_seen) && (uint32_t)(now_ms() - atomic_load(&heartbeat_ms)) <= 1500; }
 uint8_t atom_i2c_faults(void)
-{ return (uint8_t)atomic_load(&faults) | (matrix_status_faults() & (MATRIX_PROTOCOL | MATRIX_BLUETOOTH)); }
+{ return (uint8_t)atomic_load(&faults) | (matrix_status_faults() & (MATRIX_PROTOCOL | MATRIX_BLUETOOTH)) |
+    (gimbal_link_fault()?ATOM_FAULT_GIMBAL:0); }
 
 void atom_i2c_get_status(uint32_t *age_ms, uint32_t *invalid)
 {
@@ -69,7 +71,8 @@ static void respond(atom_request_t request, atom_status_t status,const uint8_t *
                     ((request.param >> 8) & 0xff) < 2) status = ATOM_BAD_VERSION;
                 else {
                     atom_write_le(payload, boot_id, 4);
-                    payload[4] = 2; payload[5] = 0; payload[6] = 1 | 8 | ATOM_FEATURE_INPUT_MODE;
+                    payload[4] = 2; payload[5] = 0;
+                    payload[6] = 1 | ATOM_FEATURE_GIMBAL | 8 | ATOM_FEATURE_INPUT_MODE;
                     ds4_host_set_input_mode((request.param >> 16) & 1);
                     payload[7] = DS4_EVENT_CAPACITY;
                     atom_write_le(payload + 8, ATOM_LOCAL_MASK, 3);
@@ -83,7 +86,8 @@ static void respond(atom_request_t request, atom_status_t status,const uint8_t *
                     bool valid = ds4_host_poll(request.param, &pad, &link, &event, &remaining, &dropped, &source_tag);
                     bool simulated=(source_tag&ATOM_DEBUG_SIM)!=0;
                     atom_write_le(payload, boot_id, 4);
-                    payload[4] = link; /* Gimbal intentionally disabled. */
+                    payload[4] = link;
+                    payload[5] = gimbal_link_state();
                     payload[6] = atomic_load(&button);
                     if (valid && event.gap) atomic_fetch_or(&faults, 1);
                     else atomic_fetch_and(&faults, ~1u);

@@ -78,8 +78,9 @@ static void draw_connection(uint16_t *pixels, const char *status)
     draw_text(pixels, 48, 330, line, 30, ui_model_controller_connected ? 0x07e0 : 0xf800);
     static const char *const gimbal_states[] = {"Disabled / disconnected", "Searching", "Connecting", "Connected"};
     unsigned gimbal = atomic_load(&ui_model_gimbal_link_state);
-    snprintf(line, sizeof(line), "Gimbal: %s", gimbal_states[gimbal < 4 ? gimbal : 0]);
-    draw_text(pixels, 48, 370, line, 22, gimbal == 3 ? 0x07e0 : 0x7bef);
+    bool gimbal_fault = atomic_load(&ui_model_gimbal_fault);
+    snprintf(line, sizeof(line), "Gimbal: %s", gimbal_fault ? "Fault" : gimbal_states[gimbal < 4 ? gimbal : 0]);
+    draw_text(pixels, 48, 370, line, 22, gimbal_fault ? 0xf800 : gimbal == 3 ? 0x07e0 : 0x7bef);
     draw_text(pixels, 48, 410, status,
               fit_font_size(status, 24, UI_CANVAS_WIDTH - 96, false), 0x07ff);
     draw_text(pixels, 48, 466, "Connect camera to this Wi-Fi.", 24, 0x7bef);
@@ -313,6 +314,13 @@ static void draw_command_status(uint16_t *pixels)
 
 static void draw_capture_status(uint16_t *pixels)
 {
+    /* A device fault stays visible even when normal preview information is hidden. */
+    if (atomic_load(&ui_model_gimbal_fault)) {
+        const char *alert="GIMBAL FAULT";
+        int width=ui_fonts_measure(alert,20,false)+16,height=ui_fonts_line_height(20)+12;
+        for (int y=70;y<70+height;++y) memset(pixels+y*UI_CANVAS_WIDTH+8,0,width*sizeof(uint16_t));
+        draw_text(pixels,16,76,alert,20,0xf800);
+    }
     char text[64];
     unsigned level=atomic_load(&ui_model_settings_mode)?UI_INFO_FULL:atomic_load(&ui_model_info_level);
     ui_overlay_policy_t policy=ui_overlay_policy(level,atomic_load(&ui_model_camera_battery),atomic_load(&ui_model_recording_state)==2);

@@ -23,6 +23,7 @@ static bool edge_valid, report_gap;
 static uint32_t edge_buttons;
 static bool sim_active;
 static uint8_t source_tag, gimbal_state;
+static bool gimbal_fault;
 static unsigned observed_mode;
 static i2c_monitor_t monitor;
 static void commands(void)
@@ -80,7 +81,7 @@ static void publish_status(const atom_client_t *client, const gamepad_snapshot_t
     input_report_t report={.atom_online=client->online,.connected=pad->connected,
         .mismatch=client->mismatch,.sim=sim_active,.buttons=pad->buttons,
         .rx=pad->rx,.ry=pad->ry,.lt=pad->lt,.rt=pad->rt,.battery=pad->battery,
-        .kind=client->input_mode,.gimbal=gimbal_state,.source_epoch=epoch,.report_id=++id,
+        .kind=client->input_mode,.gimbal=gimbal_state,.gimbal_fault=gimbal_fault,.source_epoch=epoch,.report_id=++id,
         .gap=report_gap,.event_valid=edge_valid,.event_buttons=edge_buttons};
     input_provider_publish(handle,&report);
     edge_valid=report_gap=false;
@@ -197,7 +198,7 @@ static void atom_link_task(void *arg)
         } else if (result == ATOM_CLIENT_OFFLINE || result == ATOM_CLIENT_MISMATCH || result == ATOM_CLIENT_RESTART) {
             source_restart(); discard_cached = true; event_buttons = last_buttons = 0;
             debug_pad = (gamepad_snapshot_t){.battery = 255};
-            gimbal_state=0;
+            gimbal_state=0;gimbal_fault=false;
             ESP_LOGW(TAG, "%s", result == ATOM_CLIENT_RESTART ? "ATOM restarted; releasing old input" :
                      client.mismatch ? "ATOM firmware version mismatch / HELLO failed" : "ATOM link lost");
             if (result != ATOM_CLIENT_RESTART) {
@@ -207,7 +208,7 @@ static void atom_link_task(void *arg)
         } else if (result == ATOM_CLIENT_HELLO) {
             source_restart(); discard_cached = true; event_buttons = last_buttons = 0;
             debug_pad = (gamepad_snapshot_t){.battery = 255};
-            gimbal_state=0;
+            gimbal_state=0;gimbal_fault=false;
             ESP_LOGI(TAG, "ATOM v2 online boot_id=%lu local_mask=0x%06lx",
                      (unsigned long)client.boot_id, (unsigned long)client.local_mask);
         } else if (result == ATOM_CLIENT_POLL) {
@@ -225,6 +226,7 @@ static void atom_link_task(void *arg)
             };
             debug_pad = snapshot;
             gimbal_state=p[5];
+            gimbal_fault=(p[7]&ATOM_FAULT_GIMBAL)!=0;
             bool valid = (p[18] & 1) != 0;
             report_gap=discard_cached || (p[18]&2)!=0;
             if (valid) {
@@ -270,7 +272,7 @@ esp_err_t input_atom_start(void)
     if (err!=ESP_OK) return err;
     err=input_provider_register(INPUT_SOURCE_ATOM,&handle);
     if (err!=ESP_OK) { app_console_endpoint_stop(APP_ENDPOINT_INPUT_ATOM);return err; }
-    mode_known=false;observed_mode=0;epoch=1;id=0;source_tag=gimbal_state=0;
+    mode_known=false;observed_mode=0;epoch=1;id=0;source_tag=gimbal_state=0;gimbal_fault=false;
     sim_active=edge_valid=report_gap=false;
     monitor=(i2c_monitor_t){0};
     atomic_store(&stopping,false);atomic_store(&running,true);

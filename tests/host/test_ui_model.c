@@ -52,6 +52,14 @@ int main(void)
     app_ui_set_sim(false);
     app_ui_set_atom_status(false,true);
     assert(!atomic_load(&ui_model_controller_connected));
+    unsigned protocol_before=notifications;
+    app_ui_set_atom_protocol(false,1,true);
+    assert(atomic_load(&ui_model_gimbal_fault) && notifications==protocol_before+1);
+    app_ui_set_atom_protocol(false,1,true);
+    assert(notifications==protocol_before+1);
+    app_ui_set_atom_protocol(false,1,false);
+    assert(!atomic_load(&ui_model_gimbal_fault) && notifications==protocol_before+2);
+    app_ui_set_atom_protocol(false,1,true);
     app_ui_set_camera_info("camera","version");app_ui_set_recording_status(true,true);
     atomic_store(&ui_model_display_failed,true); /* Health survives normal clear. */
     unsigned before=notifications,generation=app_ui_connection_generation();
@@ -61,13 +69,14 @@ int main(void)
     app_ui_get_status(&status);assert(status.failed && !status.default_password && !status.settings && status.battery==255);
     app_ui_set_wifi_info("late","late",true,"late",true);app_ui_set_camera_info("late","late");
     app_ui_set_info_level(2);app_ui_set_sim(true);app_ui_set_atom_status(true,true);
-    app_ui_set_atom_protocol(true,3);app_ui_set_controller_battery(10,true);
+    app_ui_set_atom_protocol(true,3,true);app_ui_set_controller_battery(10,true);
     app_ui_set_wifi_rssi(-20);app_ui_set_exposure_mode(1);app_ui_set_camera_property(0xd218,80);
     app_ui_extra_menu_open(true);app_ui_extra_menu_move(1);app_ui_menu_move(1);
     app_ui_set_menu_item(7,true,1,true,2);app_ui_set_command_status(0x500e,1);app_ui_set_recording_status(true,true);
     assert(!app_ui_toggle_settings_mode());
     assert(!ui_model_connection_ssid[0] && !ui_model_camera_model[0] && !atomic_load(&ui_model_sim_active));
     assert(!atomic_load(&ui_model_atom_connected) && !atomic_load(&ui_model_controller_connected));
+    assert(!atomic_load(&ui_model_gimbal_fault));
     assert(atomic_load(&ui_model_wifi_rssi)==-127 && atomic_load(&ui_model_camera_battery)==255);
     assert(!atomic_load(&ui_model_mode_command_status) && !atomic_load(&ui_model_recording_state));
     assert(app_ui_get_extra_status(0,&extra) && extra.actual==UINT32_MAX && !extra.writable && !extra.target_valid);

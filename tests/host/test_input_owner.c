@@ -32,9 +32,9 @@ int main(void)
     assert(input_provider_register(INPUT_SOURCE_ATOM,&atom)==ESP_OK);
     assert(input_provider_register(INPUT_SOURCE_UART_SIM,&sim)==ESP_OK);
     input_owner_init(&owner,emit,NULL);
-    input_report_t r={.connected=true,.atom_online=true,.source_epoch=1,.report_id=1,.battery=7};
+    input_report_t r={.connected=true,.atom_online=true,.gimbal_fault=true,.source_epoch=1,.report_id=1,.battery=7};
     assert(input_provider_publish(atom,&r)==ESP_OK);input_owner_tick(&owner,&caps,0);
-    assert(owner.latest.connected && owner.latest.battery==7 && presses==0);
+    assert(owner.latest.connected && owner.latest.battery==7 && owner.latest.gimbal_fault && presses==0);
     r.report_id=2;r.rt=255;assert(input_provider_publish(atom,&r)==ESP_OK);
     input_owner_tick(&owner,&caps,50);assert(presses==2);
     unsigned old=releases;
@@ -49,7 +49,7 @@ int main(void)
     r.report_id=10;assert(input_provider_publish(atom,&r)==ESP_OK);input_owner_tick(&owner,&caps,300);
     assert(owner.latest.report_id==4 && owner.latest.sim && presses==4);
     assert(input_provider_disconnect(sim,INPUT_DISCONNECT_OFFLINE)==ESP_OK);input_owner_tick(&owner,&caps,350);
-    assert(!owner.latest.connected && owner.latest.battery==255);
+    assert(!owner.latest.connected && owner.latest.battery==255 && !owner.latest.gimbal_fault);
 
     assert(input_owner_select(&owner,INPUT_SOURCE_ATOM));
     assert(input_provider_unregister(atom)==ESP_OK);input_owner_tick(&owner,&caps,400);

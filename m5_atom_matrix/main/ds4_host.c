@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -32,6 +33,7 @@ static TickType_t opened_at;
 static nvs_handle_t storage;
 static uint32_t input_reports, rejected_reports;
 static TickType_t last_input_log;
+static uint32_t classic_report_ms, classic_epoch;
 
 /* Both sources pass through exactly the same publication and event rules. */
 static void apply_locked(bool simulated, const ds4_state_t *next)
@@ -111,6 +113,14 @@ void ds4_host_get_state(ds4_state_t *out)
 void ds4_host_get_classic(ds4_state_t *out)
 {
     portENTER_CRITICAL(&lock); *out=real_state; portEXIT_CRITICAL(&lock);
+}
+void ds4_host_get_gimbal(ds4_state_t *out, uint32_t *report_ms, uint32_t *epoch)
+{
+    portENTER_CRITICAL(&lock);
+    *out=real_state; *report_ms=classic_report_ms; *epoch=classic_epoch;
+    /* Simulated camera controls must not unexpectedly drive a physical gimbal. */
+    if (sim_active) out->connected=false;
+    portEXIT_CRITICAL(&lock);
 }
 void ds4_host_apply_ble(const ds4_state_t *next)
 {
@@ -273,6 +283,7 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
         memset(&real_state, 0, sizeof(real_state));
         apply_locked(false,&real_state);
         if (active) {
+            ++classic_epoch;
             memcpy(target, param->open.bd_addr, 6);
             active_handle = param->open.handle;
             opened_at = xTaskGetTickCount();
@@ -312,6 +323,7 @@ static void hid_event(esp_hidh_cb_event_t event, esp_hidh_cb_param_t *param)
         if (!parsed || !current) ++rejected_reports;
         uint32_t count = input_reports, rejected = rejected_reports;
         if (current && parsed) {
+            classic_report_ms=(uint32_t)(esp_timer_get_time()/1000);
             real_state = next;
             apply_locked(false,&next);
             if (first) save_pending = true;

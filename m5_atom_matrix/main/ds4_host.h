@@ -16,6 +16,8 @@ void ds4_host_apply_sim(const ds4_state_t *next);
 void ds4_host_sim_overflow(void);
 
 void ds4_host_get_classic(ds4_state_t *state);
+/* Physical DS4 only, independent of LCD source selection and UART simulation. */
+void ds4_host_get_gimbal(ds4_state_t *state, uint32_t *report_ms, uint32_t *epoch);
 void ds4_host_apply_ble(const ds4_state_t *state);
 
 void ds4_host_set_input_mode(unsigned mode);

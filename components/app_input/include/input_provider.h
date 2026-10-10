@@ -11,7 +11,7 @@ typedef enum { INPUT_DISCONNECT_OFFLINE, INPUT_DISCONNECT_RESTART,
     INPUT_DISCONNECT_GAP, INPUT_DISCONNECT_STOP, INPUT_DISCONNECT_OVERFLOW,
     INPUT_DISCONNECT_REASON_COUNT } input_disconnect_reason_t;
 typedef struct {
-    bool connected, atom_online, mismatch, sim;
+    bool connected, atom_online, mismatch, sim, gimbal_fault;
     uint32_t buttons, source_epoch, report_id;
     int16_t rx, ry;
     uint8_t lt, rt, battery, kind, gimbal;

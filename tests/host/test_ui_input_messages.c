@@ -3,10 +3,10 @@
 #include <assert.h>
 #include <stdio.h>
 static unsigned changes,battery,gimbal;
-static bool atom,connected,sim,mismatch,xbox;
+static bool atom,connected,sim,mismatch,xbox,gimbal_fault;
 void app_ui_set_sim(bool v) { sim=v; ++changes; }
 void app_ui_set_atom_status(bool a,bool c) { atom=a; connected=c; ++changes; }
-void app_ui_set_atom_protocol(bool m,unsigned g) { mismatch=m; gimbal=g; ++changes; }
+void app_ui_set_atom_protocol(bool m,unsigned g,bool f) { mismatch=m; gimbal=g; gimbal_fault=f; ++changes; }
 void app_ui_set_controller_battery(unsigned b,bool x) { battery=b; xbox=x; ++changes; }
 int main(void)
 {
@@ -15,10 +15,15 @@ int main(void)
             .connected=true,.battery=8,.kind=0,.gimbal=3}};
     assert(ui_input_message_apply(&m)==ESP_OK);
     assert(changes==4 && atom && connected && battery==8 && !xbox && !sim && !mismatch && gimbal==3);
+    m.payload.input.gimbal_fault=true;m.payload.input.connected=false;
+    assert(ui_input_message_apply(&m)==ESP_OK && gimbal_fault && !connected && battery==255);
+    m.payload.input.gimbal_fault=false;
+    assert(ui_input_message_apply(&m)==ESP_OK && !gimbal_fault);
+    m.payload.input.connected=true;
     m.payload.input.sim=true;m.payload.input.kind=1;m.payload.input.battery=255;
     assert(ui_input_message_apply(&m)==ESP_OK && sim && xbox && battery==255);
-    m.payload.input.atom_online=false;
-    assert(ui_input_message_apply(&m)==ESP_OK && !atom && connected && sim);
+    m.payload.input.atom_online=false;m.payload.input.gimbal_fault=true;
+    assert(ui_input_message_apply(&m)==ESP_OK && !atom && connected && sim && !gimbal_fault);
     m.payload.input.atom_online=true;
     unsigned old=changes;
     m.payload.input.battery=11;assert(ui_input_message_apply(&m)==ESP_ERR_INVALID_ARG && changes==old);
@@ -33,6 +38,6 @@ int main(void)
     m.generation=4;m.payload.input.mismatch=true;
     assert(ui_input_message_apply(&m)==ESP_ERR_INVALID_ARG && changes==old);
     m.payload.input.connected=false;m.payload.input.atom_online=false;
-    assert(ui_input_message_apply(&m)==ESP_OK && !connected && !atom && mismatch && battery==255);
+    assert(ui_input_message_apply(&m)==ESP_OK && !connected && !atom && mismatch && battery==255 && !gimbal_fault);
     puts("typed input state validation and UI model updates passed");
 }

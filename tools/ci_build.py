@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -13,12 +14,17 @@ def main():
     parser.add_argument('flavour', choices=('debug', 'release'))
     parser.add_argument('--profile', choices=('default', 'stable'), default='default',
                         help='LCD stable profile uses 80 MHz Flash and PSRAM')
+    parser.add_argument('--build-tag', help='Separate measurement build directory (letters, digits, hyphens)')
     args = parser.parse_args()
+    if args.build_tag and not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', args.build_tag):
+        parser.error('build-tag must start with a lowercase letter and contain at most 48 letters/digits/hyphens')
     root = Path(__file__).resolve().parents[1]
     project = root if args.board == 'lcd' else root / 'm5_atom_matrix'
     if args.profile == 'stable' and args.board != 'lcd':
         parser.error('stable profile is for the LCD ESP32-S3 only')
     suffix = '-stable' if args.profile == 'stable' else ''
+    if args.build_tag:
+        suffix += '-' + args.build_tag
     build = root / 'build' / f'ci-{args.board}-{args.flavour}{suffix}'
     idf = os.environ.get('IDF_PATH')
     if not idf or not (Path(idf) / 'tools/idf.py').is_file():

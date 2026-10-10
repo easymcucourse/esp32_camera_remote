@@ -8,6 +8,7 @@
 #include "matrix_status.h"
 #include "ds4_host.h"
 #include "atom_console.h"
+#include "gimbal_link.h"
 
 #define ATOM_BUTTON_GPIO GPIO_NUM_39
 static const char *TAG = "atom_matrix";
@@ -31,6 +32,7 @@ void app_main(void)
     ESP_ERROR_CHECK(atom_i2c_start());
     matrix_status_boot_stage(MATRIX_BOOT_STORAGE);
     ESP_ERROR_CHECK(ds4_host_init());
+    ESP_ERROR_CHECK(gimbal_link_init());
     atom_i2c_ready();
     atom_console_start();
     ESP_LOGI(TAG, "ATOM ready; I2C v2 and Matrix status renderer enabled");

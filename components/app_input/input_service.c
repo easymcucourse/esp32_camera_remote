@@ -141,7 +141,7 @@ static app_input_state_t snapshot(void)
 {
     const input_report_t *r=&owner.latest;
     return (app_input_state_t){.connected=r->connected && owner.reports.gamepad.connected,
-        .atom_online=r->atom_online,.sim=r->sim,.mismatch=r->mismatch,.buttons=r->buttons,
+        .atom_online=r->atom_online,.sim=r->sim,.mismatch=r->mismatch,.gimbal_fault=r->gimbal_fault,.buttons=r->buttons,
         .source_epoch=r->source_epoch,.report_id=r->report_id,.rx=r->rx,.ry=r->ry,
         .lt=r->lt,.rt=r->rt,.battery=r->battery,.kind=r->source_epoch?r->kind:pad_kind,.gimbal=r->gimbal};
 }

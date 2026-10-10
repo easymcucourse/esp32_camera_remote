@@ -1,0 +1,28 @@
+# Run with --port atom=COM6. Requires the gimbal ready and physical DS4 offline.
+# Toggles the persistent enable flag, submits neutral, reconnects, restores ON.
+@atom gimbal status
+expect "state=3 enabled=1 fault=0" 3
+expect "armed=0 ds4=0" 3
+gimbal on
+wait 200
+gimbal status
+expect "state=3 enabled=1 fault=0" 3
+gimbal on
+wait 200
+gimbal status
+expect "state=3 enabled=1 fault=0" 3
+! gimbal speed 0
+! gimbal speed 401
+! gimbal invert 2
+! gimbal on extra
+gimbal off
+wait 500
+gimbal status
+expect "state=0 enabled=0" 3
+status
+expect "gimbal=255 (255=unknown)" 3
+gimbal on
+expect "RS3 Mini control ready" 60
+gimbal status
+expect "state=3 enabled=1 fault=0" 3
+expect "armed=0 ds4=0" 3

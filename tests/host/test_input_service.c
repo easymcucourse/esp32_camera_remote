@@ -84,6 +84,8 @@ int main(void)
     create_ok=true;assert(app_input_start()==ESP_OK && worker);
     assert(app_input_start()==ESP_ERR_INVALID_STATE);
     input_owner_init(&owner,action,NULL);refresh_camera();
+    owner.latest.gimbal_fault=true;assert(snapshot().gimbal_fault);
+    owner.latest.gimbal_fault=false;assert(!snapshot().gimbal_fault);
     assert(caps.session && caps.generation==camera_caps.generation);
     ui_state.settings=true;refresh_ui();
     assert(caps.settings && preferences_known && pad_kind==1 && !pad_dirty[0]);

@@ -1,4 +1,5 @@
 #include "ble_gamepad.h"
+#include "ble_clients.h"
 #include "ble_advertisement.h"
 #include "ultimate2_report.h"
 #include "ds4_host.h"
@@ -96,7 +97,7 @@ static void discover(void)
     ESP_LOGI(TAG,"BLE authenticated; discovering HID and battery services");
     if (esp_ble_gattc_search_service(client_if,connection,NULL)!=ESP_OK) close_peer("service search could not start");
 }
-static void gap_event(esp_gap_ble_cb_event_t event,esp_ble_gap_cb_param_t *p)
+void ble_gamepad_gap_event(esp_gap_ble_cb_event_t event,esp_ble_gap_cb_param_t *p)
 {
     if (event==ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT) {
         atomic_store(&scan_ready,p->scan_param_cmpl.status==ESP_BT_STATUS_SUCCESS);
@@ -129,8 +130,8 @@ static void gap_event(esp_gap_ble_cb_event_t event,esp_ble_gap_cb_param_t *p)
                                   item.advertisement.hid,item.advertisement.gamepad);
         }
     } else if (event==ESP_GAP_BLE_SEC_REQ_EVT) {
-        esp_ble_gap_security_rsp(p->ble_security.ble_req.bd_addr,
-            atomic_load(&linking) && is_peer(p->ble_security.ble_req.bd_addr));
+        if (atomic_load(&linking) && is_peer(p->ble_security.ble_req.bd_addr))
+            esp_ble_gap_security_rsp(p->ble_security.ble_req.bd_addr,true);
     } else if (event==ESP_GAP_BLE_AUTH_CMPL_EVT && atomic_load(&linking) && is_peer(p->ble_security.auth_cmpl.bd_addr)) {
         if (!p->ble_security.auth_cmpl.success) close_peer("pairing failed");
         else {
@@ -138,9 +139,10 @@ static void gap_event(esp_gap_ble_cb_event_t event,esp_ble_gap_cb_param_t *p)
         }
     }
 }
-static void gatt_event(esp_gattc_cb_event_t event,esp_gatt_if_t iface,esp_ble_gattc_cb_param_t *p)
+void ble_gamepad_gatt_event(esp_gattc_cb_event_t event,esp_gatt_if_t iface,esp_ble_gattc_cb_param_t *p)
 {
     if (event==ESP_GATTC_REG_EVT) {
+        if (p->reg.app_id!=0x42) return;
         if (p->reg.status==ESP_GATT_OK) {
             client_if=iface;atomic_store(&registered,true);
             esp_ble_gap_set_scan_params(&scan_params);
@@ -162,10 +164,12 @@ static void gatt_event(esp_gattc_cb_event_t event,esp_gatt_if_t iface,esp_ble_ga
         if (esp_ble_set_encryption(p->open.remote_bda,ESP_BLE_SEC_ENCRYPT)!=ESP_OK) close_peer("encryption could not start");
         break;
     case ESP_GATTC_DIS_SRVC_CMPL_EVT:
+        if (p->dis_srvc_cmpl.conn_id!=atomic_load(&connection)) break;
         if (p->dis_srvc_cmpl.status!=ESP_GATT_OK) close_peer("service discovery failed");
         else { atomic_store(&services_ready,true);discover(); }
         break;
     case ESP_GATTC_SEARCH_RES_EVT:
+        if (p->search_res.conn_id!=atomic_load(&connection)) break;
         if (p->search_res.srvc_id.uuid.len==ESP_UUID_LEN_16) {
             unsigned uuid=p->search_res.srvc_id.uuid.uuid.uuid16;
             if (uuid==0x1812) { hid_found=true;hid_start=p->search_res.start_handle;hid_end=p->search_res.end_handle; }
@@ -173,6 +177,7 @@ static void gatt_event(esp_gattc_cb_event_t event,esp_gatt_if_t iface,esp_ble_ga
         }
         break;
     case ESP_GATTC_SEARCH_CMPL_EVT: {
+        if (p->search_cmpl.conn_id!=atomic_load(&connection)) break;
         if (p->search_cmpl.status!=ESP_GATT_OK || !hid_found) { close_peer("no verified HID service");break; }
         /* Connected here denotes verified BLE HID transport; input reports are
          * not yet mapped into the LCD input source. */
@@ -255,6 +260,9 @@ static void gatt_event(esp_gattc_cb_event_t event,esp_gatt_if_t iface,esp_ble_ga
         ESP_LOGI(TAG,"HID notify descriptor status=%u",p->write.status);
         break;
     case ESP_GATTC_DISCONNECT_EVT:
+        /* Bluedroid broadcasts physical disconnects to every registered
+         * application. A gimbal disconnect must not retire BLE HID input. */
+        if (p->disconnect.conn_id!=atomic_load(&connection) || !is_peer(p->disconnect.remote_bda)) break;
         atomic_store(&connected,false);atomic_store(&linking,false);
         input_live=false;input_supported=false;
         ds4_host_apply_ble(&(ds4_state_t){.battery=255});
@@ -310,16 +318,16 @@ static void worker(void *arg)
         } else if (atomic_load(&registered) && atomic_load(&scan_ready) && !atomic_load(&scanning) && now>=next_scan) {
             portENTER_CRITICAL(&scan_lock);candidate_count=scan_packets=scan_named=0;candidates_overflow=false;portEXIT_CRITICAL(&scan_lock);
             atomic_store(&scanning,true);
-            if (esp_ble_gap_start_scanning(5)!=ESP_OK) atomic_store(&scanning,false);
-            next_scan=now+8000000;
+            esp_err_t err=ble_clients_scan(1,5);
+            if (err!=ESP_OK) atomic_store(&scanning,false);
+            next_scan=now+(err==ESP_OK?8000000:1000000);
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 esp_err_t ble_gamepad_init(void)
 {
-    esp_err_t err=esp_ble_gap_register_callback(gap_event);if (err!=ESP_OK) return err;
-    err=esp_ble_gattc_register_callback(gatt_event);if (err!=ESP_OK) return err;
+    esp_err_t err=ble_clients_init();if (err!=ESP_OK) return err;
     uint8_t auth=ESP_LE_AUTH_REQ_SC_BOND,io=ESP_IO_CAP_NONE,key_size=16;
     err=esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE,&auth,sizeof(auth));if (err!=ESP_OK) return err;
     err=esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE,&io,sizeof(io));if (err!=ESP_OK) return err;

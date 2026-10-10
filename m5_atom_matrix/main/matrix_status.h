@@ -8,6 +8,7 @@ void matrix_status_host_task_started(void);
 void matrix_status_note_lcd_command(bool valid);
 void matrix_status_set_ble_gamepad(matrix_link_t link);
 void matrix_status_set_ble_gimbal(matrix_link_t link);
+void matrix_status_set_gimbal_fault(bool active);
 /* 0..100 percent, >100 unknown. Link disconnect clears cached capacity. */
 void matrix_status_set_ble_gamepad_battery(uint8_t percent);
 void matrix_status_set_ble_gimbal_battery(uint8_t percent);

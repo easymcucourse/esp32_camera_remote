@@ -5,6 +5,7 @@
 #include "matrix_status.h"
 #include "pad_console.h"
 #include "ble_gamepad.h"
+#include "gimbal_link.h"
 #include "i2c_debug.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -13,6 +14,7 @@
 
 static bool command(int argc, char **argv)
 {
+    if (gimbal_link_command(argc,argv)) return true;
     if (ble_gamepad_command(argc,argv)) return true;
     if (i2c_debug_command(argc,argv)) return true;
     if (atom_i2c_debug_command(argc,argv)) return true;
@@ -22,6 +24,7 @@ static bool command(int argc, char **argv)
     if (!strcmp(argv[0], "help")) {
         debug_printf("[dbg] OK help: version; status; log <tag|*> <none|error|warn|info|debug|verbose>; i2c log on|off|changes; i2c stats [reset]\n");
         debug_printf("[dbg] ble map: cached HID report descriptor (no device identity)\n");
+        debug_printf("[dbg] gimbal status|on|off|pair|stop|calibrate|speed [pan|tilt] 20..400|invert 0|1\n");
 #if CONFIG_REMOTE_DBG_SIM
         debug_printf("[dbg] SIM i2c: req <9 hex bytes>; drop 0..10000; corrupt 0..10000; delay 0..200 (milliseconds)\n");
         debug_printf("[dbg] SIM led: test (toggle corners every 1s); off; fault bt|i2c|overflow on|off\n");

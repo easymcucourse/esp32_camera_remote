@@ -41,6 +41,8 @@ void matrix_status_set_ble_gimbal_battery(uint8_t percent)
 { portENTER_CRITICAL(&lock); state.gimbal_battery = state.gimbal == MATRIX_CONNECTED && percent <= 100 ? percent : 255; portEXIT_CRITICAL(&lock); }
 uint8_t matrix_status_faults(void)
 { portENTER_CRITICAL(&lock); uint8_t value = state.faults; portEXIT_CRITICAL(&lock); return value; }
+void matrix_status_set_gimbal_fault(bool active)
+{ portENTER_CRITICAL(&lock); if (active) state.faults|=MATRIX_GIMBAL; else state.faults&=~MATRIX_GIMBAL; portEXIT_CRITICAL(&lock); }
 
 void matrix_status_get_state(matrix_model_t *out)
 { portENTER_CRITICAL(&lock); *out = state; portEXIT_CRITICAL(&lock); }

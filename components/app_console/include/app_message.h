@@ -155,7 +155,7 @@ typedef enum { APP_CAMERA_CONTROL_SHUTTER_HALF, APP_CAMERA_CONTROL_SHUTTER_FULL,
     APP_CAMERA_CONTROL_RECORD, APP_CAMERA_CONTROL_ZOOM, APP_CAMERA_CONTROL_FOCUS_STEP,
     APP_CAMERA_CONTROL_COUNT } app_camera_control_t;
 typedef struct {
-    bool connected, atom_online, mismatch, sim;
+    bool connected, atom_online, mismatch, sim, gimbal_fault;
     uint32_t buttons, source_epoch, report_id;
     int16_t rx, ry;
     uint8_t lt, rt, battery, kind, gimbal;

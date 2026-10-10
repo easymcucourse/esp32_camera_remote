@@ -13,6 +13,7 @@ static bool removal_failure=true;
 static bool custom_command;
 static app_message_t inbox,last_reply;
 static unsigned stops,deletes,device_returns,received,presses,trace_count;
+static bool saw_gimbal_fault,saw_gimbal_recovery;
 static uint32_t last_epoch,last_id;
 static TaskFunction_t worker;
 static atom_sim_t peripheral;
@@ -24,6 +25,8 @@ static esp_err_t traced_publish(input_provider_handle_t h,const input_report_t *
     assert(r->source_epoch && r->report_id && (!r->connected || (r->atom_online && !r->mismatch)));
     if (last_epoch==r->source_epoch) assert(r->report_id>last_id);
     last_epoch=r->source_epoch;last_id=r->report_id;++trace_count;
+    if (r->atom_online && received==2) { assert(r->gimbal_fault);saw_gimbal_fault=true; }
+    if (r->atom_online && received==3) { assert(!r->gimbal_fault);saw_gimbal_recovery=true; }
     esp_err_t err=input_provider_publish(h,r);input_owner_tick(&owner,&caps,input_now_ms());return err;
 }
 static bool emit(void *context,pad_action_t a)
@@ -68,7 +71,11 @@ esp_err_t i2c_master_receive(i2c_master_dev_handle_t device,uint8_t *bytes,size_
     if (received==1) assert((atom_read_le(request_bytes+4,4)>>16)==1); /* Restored type in first HELLO. */
     if (received==3) { peripheral.pad.r2=242;atom_sim_pad(&peripheral,&peripheral.pad); }
     size_t produced=0;assert(atom_sim_transact(&peripheral,request_bytes,bytes,&produced)==ATOM_SIM_OK && produced==length);
-    if (length==ATOM_POLL_SIZE+7) { bytes[6+27]&=~ATOM_DEBUG_SIM;bytes[length-1]=atom_crc8(bytes,length-1); }
+    if (length==ATOM_POLL_SIZE+7) {
+        bytes[6+27]&=~ATOM_DEBUG_SIM;
+        bytes[6+7]=received==2?ATOM_FAULT_GIMBAL:1; /* Other faults don't imply a gimbal fault. */
+        bytes[length-1]=atom_crc8(bytes,length-1);
+    }
     return ESP_OK;
 }
 int main(void)
@@ -94,7 +101,8 @@ int main(void)
     queued=true;commands();assert(last_reply.result==ESP_OK && monitor.mode==I2C_LOG_ALL);
     worker(NULL);
     assert(received==6 && monitor.stats.total==6 && presses==2 && trace_count>=3);
-    assert(!owner.latest.connected && !atomic_load(&running) && device_returns==2 && stops==2 && deletes==1 && !prepared_device);
+    assert(saw_gimbal_fault && saw_gimbal_recovery);
+    assert(!owner.latest.connected && !owner.latest.gimbal_fault && !atomic_load(&running) && device_returns==2 && stops==2 && deletes==1 && !prepared_device);
     inbox.deadline_us=clock_us+100000;inbox.payload.command.index=APP_INPUT_ATOM_STATS;
     queued=true;commands();assert(last_reply.result==ESP_OK && last_reply.payload.i2c_stats.total==6 && last_reply.payload.i2c_stats.failed==3);
     inbox.payload.command.index=APP_INPUT_ATOM_LOG_READ;queued=true;commands();

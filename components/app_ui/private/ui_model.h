@@ -49,6 +49,7 @@ extern atomic_uint ui_model_prop_extra[CAMERA_EXTRA_COUNT];
 extern atomic_bool ui_model_atom_connected, ui_model_controller_connected;
 extern atomic_bool ui_model_atom_protocol_mismatch;
 extern atomic_uint ui_model_gimbal_link_state;
+extern atomic_bool ui_model_gimbal_fault;
 
 /* Core fixed-display transition only, after all normal writers/readers drain. */
 extern atomic_bool ui_model_frozen;

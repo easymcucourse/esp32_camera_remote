@@ -17,7 +17,7 @@ esp_err_t ui_input_message_apply(const app_message_t *m)
     generation=m->generation;
     app_ui_set_sim(s->sim);
     app_ui_set_atom_status(s->atom_online,s->connected);
-    app_ui_set_atom_protocol(s->mismatch,s->gimbal);
+    app_ui_set_atom_protocol(s->mismatch,s->gimbal,s->atom_online && !s->mismatch && s->gimbal_fault);
     app_ui_set_controller_battery(s->connected ? s->battery : 255,s->kind==1);
     return ESP_OK;
 }

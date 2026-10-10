@@ -46,6 +46,7 @@ atomic_uint ui_model_prop_extra[CAMERA_EXTRA_COUNT] = {
 atomic_bool ui_model_atom_connected, ui_model_controller_connected;
 atomic_bool ui_model_atom_protocol_mismatch;
 atomic_uint ui_model_gimbal_link_state;
+atomic_bool ui_model_gimbal_fault;
 
 atomic_bool ui_model_frozen;
 
@@ -110,12 +111,14 @@ void app_ui_set_controller_battery(unsigned level, bool xbox)
     atomic_store(&ui_model_controller_battery, (xbox ? 256u : 0u) | (level <= 10 ? level * 10 : 255u));
 }
 
-void app_ui_set_atom_protocol(bool mismatch, unsigned gimbal)
+void app_ui_set_atom_protocol(bool mismatch, unsigned gimbal, bool fault)
 {
     if (atomic_load(&ui_model_frozen)) return;
     if (gimbal > 3) gimbal = 0;
-    if (atomic_load(&ui_model_atom_protocol_mismatch) == mismatch && atomic_load(&ui_model_gimbal_link_state) == gimbal) return;
+    if (atomic_load(&ui_model_atom_protocol_mismatch) == mismatch && atomic_load(&ui_model_gimbal_link_state) == gimbal &&
+        atomic_load(&ui_model_gimbal_fault) == fault) return;
     atomic_store(&ui_model_atom_protocol_mismatch, mismatch); atomic_store(&ui_model_gimbal_link_state, gimbal);
+    atomic_store(&ui_model_gimbal_fault, fault);
     atomic_store(&ui_model_wifi_info_dirty, true);
     app_ui_refresh_wifi_info();
 }
@@ -272,6 +275,7 @@ void ui_model_freeze_and_clear(void)
     atomic_store(&ui_model_controller_connected,0);
     atomic_store(&ui_model_atom_protocol_mismatch,0);
     atomic_store(&ui_model_gimbal_link_state,0);
+    atomic_store(&ui_model_gimbal_fault,false);
     for (unsigned i=0;i<CAMERA_EXTRA_COUNT;++i) atomic_store(&ui_model_prop_extra[i],UINT32_MAX);
     atomic_fetch_add(&ui_model_connection_generation,1);
 }
